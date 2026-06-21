@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/di/service_locator.dart';
 import 'features/timeline/presentation/timeline_page.dart';
 import 'features/chat/presentation/chat_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 加载环境变量文件
+  await dotenv.load(fileName: ".env");
+
+  // 启动依赖注入中枢
   await setupLocator();
+
   runApp(const LocusApp());
 }
 

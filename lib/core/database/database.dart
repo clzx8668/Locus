@@ -6,6 +6,8 @@ import 'package:drift/native.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
+import '../utils/doc_parser.dart';
+
 part 'database.g.dart';
 
 /// 核心表：HubPayloads (多模态路由载荷表)
@@ -27,12 +29,136 @@ class HubPayloads extends Table {
       dateTime().withDefault(currentDateAndTime)();
 }
 
-@DriftDatabase(tables: [HubPayloads])
+/// 会话表 (ChatSessions) —— 左脑的"记忆抽屉"
+/// 每次点击"新建对话"，就会在这里生成一条新记录。
+class ChatSessions extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  TextColumn get title =>
+      text().withLength(min: 1, max: 100)();
+
+  DateTimeColumn get createdAt =>
+      dateTime().withDefault(currentDateAndTime)();
+
+  DateTimeColumn get updatedAt =>
+      dateTime().withDefault(currentDateAndTime)();
+}
+
+/// 消息明细表 (ChatMessages) —— 抽屉里的"具体文件"
+/// 记录 User 和 Assistant 的每一句对话。
+class ChatMessages extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  IntColumn get sessionId =>
+      integer().references(ChatSessions, #id)();
+
+  TextColumn get role => text()();
+
+  TextColumn get content => text()();
+
+  DateTimeColumn get createdAt =>
+      dateTime().withDefault(currentDateAndTime)();
+}
+
+/// 长久记忆表 (LongTermMemories) —— 私人系统设定与业务规则
+/// 用于存放："我们的发票抬头是XXX"、"报价单必须包含运费"等事实。
+class LongTermMemories extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  TextColumn get content => text()();
+
+  TextColumn get tags => text().nullable()();
+
+  DateTimeColumn get createdAt =>
+      dateTime().withDefault(currentDateAndTime)();
+
+  DateTimeColumn get updatedAt =>
+      dateTime().withDefault(currentDateAndTime)();
+}
+
+/// 知识文件参考库 (KnowledgeFiles) —— 挂载的本地附件库
+/// 用户上传的 PDF、Word 等本地文件，安全复制到沙盒后永久封存。
+class KnowledgeFiles extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  TextColumn get name => text()();
+
+  TextColumn get localPath => text()();
+
+  IntColumn get size => integer()();
+
+  TextColumn get extension => text()();
+
+  BoolColumn get isActive =>
+      boolean().withDefault(const Constant(true))();
+
+  DateTimeColumn get createdAt =>
+      dateTime().withDefault(currentDateAndTime)();
+}
+
+/// 向量存储表 (VectorStorage) —— RAG 知识胶囊
+/// 存储文档切片后的知识片段，供 AI 深度阅读检索。
+class VectorStorage extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  IntColumn get sourceFileId =>
+      integer().references(KnowledgeFiles, #id)();
+
+  TextColumn get content => text()();
+
+  // 后续可增加 RealColumn 存储向量数组
+}
+
+@DriftDatabase(tables: [
+  HubPayloads,
+  ChatSessions,
+  ChatMessages,
+  LongTermMemories,
+  KnowledgeFiles,
+  VectorStorage,
+])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 6;
+
+  @override
+  MigrationStrategy get migration {
+    return MigrationStrategy(
+      onCreate: (Migrator m) async {
+        await m.createAll();
+      },
+      onUpgrade: (Migrator m, int from, int to) async {
+        if (from <= 1) {
+          await m.createTable(chatSessions);
+          await m.createTable(chatMessages);
+        }
+        if (from <= 2) {
+          await m.createTable(longTermMemories);
+          await m.createTable(knowledgeFiles);
+        }
+        // v3 → v4: KnowledgeFiles 字段重构 (name/localPath/size/extension/createdAt)
+        if (from <= 3) {
+          await customStatement('DROP TABLE IF EXISTS knowledge_files');
+          await m.createTable(knowledgeFiles);
+        }
+        // v4 → v5: 新增 VectorStorage 表 (RAG 知识胶囊)
+        if (from <= 4) {
+          await m.createTable(vectorStorage);
+        }
+        // v5 → v6: KnowledgeFiles 新增 isActive 列
+        if (from <= 5) {
+          await customStatement(
+            'ALTER TABLE knowledge_files ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1',
+          );
+        }
+      },
+      beforeOpen: (details) async {
+        await customStatement('PRAGMA foreign_keys = ON');
+      },
+    );
+  }
 
   Future<int> insertPayload(HubPayloadsCompanion entry) {
     return into(hubPayloads).insert(entry);
@@ -45,6 +171,165 @@ class AppDatabase extends _$AppDatabase {
                 OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc)
           ]))
         .watch();
+  }
+
+  // ==================== 会话与消息 (左脑短期记忆) ====================
+
+  Future<int> createSession(String title) {
+    return into(chatSessions).insert(
+      ChatSessionsCompanion.insert(title: title),
+    );
+  }
+
+  // 升级版：支持会话标题 + 对话正文全文的深度检索流
+  Stream<List<ChatSession>> watchAllSessions(String query) {
+    if (query.trim().isEmpty) {
+      return (select(chatSessions)
+            ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+          .watch();
+    } else {
+      return (select(chatSessions)
+            ..where((s) {
+              final titleMatch = s.title.like('%$query%');
+
+              final matchingSessionIds = selectOnly(chatMessages)
+                ..addColumns([chatMessages.sessionId])
+                ..where(chatMessages.content.like('%$query%'));
+
+              final contentMatch = s.id.isInQuery(matchingSessionIds);
+
+              return titleMatch | contentMatch;
+            })
+            ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+          .watch();
+    }
+  }
+
+  Future<int> insertMessage(int sessionId, String role, String content) {
+    (update(chatSessions)..where((t) => t.id.equals(sessionId))).write(
+      ChatSessionsCompanion(updatedAt: Value(DateTime.now())),
+    );
+
+    return into(chatMessages).insert(
+      ChatMessagesCompanion.insert(
+        sessionId: sessionId,
+        role: role,
+        content: content,
+      ),
+    );
+  }
+
+  Future<List<ChatMessage>> getMessagesForSession(int sessionId) {
+    return (select(chatMessages)
+          ..where((t) => t.sessionId.equals(sessionId))
+          ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
+        .get();
+  }
+
+  // ==================== 长久记忆 ====================
+
+  Stream<List<LongTermMemory>> watchAllMemories() {
+    return (select(longTermMemories)
+          ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+        .watch();
+  }
+
+  Future<List<String>> getAllMemoryTexts() async {
+    final memories = await select(longTermMemories).get();
+    return memories.map((m) => m.content).toList();
+  }
+
+  Future<int> addMemory(String content, {String? tags}) {
+    return into(longTermMemories).insert(
+      LongTermMemoriesCompanion.insert(content: content, tags: Value(tags)),
+    );
+  }
+
+  Future<int> updateMemory(int id, String newContent) {
+    return (update(longTermMemories)..where((t) => t.id.equals(id))).write(
+      LongTermMemoriesCompanion(
+        content: Value(newContent),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
+  Future<int> deleteMemory(int id) {
+    return (delete(longTermMemories)..where((t) => t.id.equals(id))).go();
+  }
+
+  // ==================== 知识文件 ====================
+
+  Stream<List<KnowledgeFile>> watchAllFiles() {
+    return (select(knowledgeFiles)
+          ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
+        .watch();
+  }
+
+  Future<int> addFile({
+    required String name,
+    required String localPath,
+    required int size,
+    required String extension,
+  }) {
+    return into(knowledgeFiles).insert(
+      KnowledgeFilesCompanion.insert(
+        name: name,
+        localPath: localPath,
+        size: size,
+        extension: extension,
+      ),
+    );
+  }
+
+  Future<void> deleteFile(int id) {
+    return transaction(() async {
+      await (delete(vectorStorage)..where((t) => t.sourceFileId.equals(id))).go();
+      await (delete(knowledgeFiles)..where((t) => t.id.equals(id))).go();
+    });
+  }
+
+  Future<void> toggleFileActive(int id, bool isActive) {
+    return (update(knowledgeFiles)..where((t) => t.id.equals(id))).write(
+      KnowledgeFilesCompanion(isActive: Value(isActive)),
+    );
+  }
+
+  // ==================== RAG 知识检索 ====================
+
+  /// 将文档切片存入向量存储
+  Future<void> processFileForRAG(int fileId, String localPath) async {
+    final fullText = await DocParser.extractTextFromPdf(localPath);
+    final chunks = DocParser.chunkText(fullText);
+
+    for (var chunk in chunks) {
+      await into(vectorStorage).insert(
+        VectorStorageCompanion.insert(
+          sourceFileId: fileId,
+          content: chunk,
+        ),
+      );
+    }
+  }
+
+  /// 全文检索匹配——从知识胶囊中查找相关上下文（仅检索已激活文件）
+  Future<String> getRelevantContext(String query) async {
+    final activeFiles = await (select(knowledgeFiles)
+          ..where((t) => t.isActive.equals(true)))
+        .get();
+
+    final activeFileIds = activeFiles.map((f) => f.id).toList();
+
+    if (activeFileIds.isEmpty) return "";
+
+    final results = await (select(vectorStorage)
+          ..where((t) =>
+              t.sourceFileId.isIn(activeFileIds) &
+              t.content.like('%$query%'))
+          ..limit(3))
+        .get();
+
+    return results.map((e) => e.content).join('\n---\n');
   }
 }
 
