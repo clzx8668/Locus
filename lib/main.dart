@@ -3,6 +3,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/di/service_locator.dart';
 import 'features/timeline/presentation/timeline_page.dart';
 import 'features/chat/presentation/chat_page.dart';
+import 'features/home/presentation/locus_home_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,11 +24,30 @@ class LocusApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Locus Hub',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueGrey),
-        useMaterial3: true,
+      debugShowCheckedModeBanner: false,
+      darkTheme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF1E1E1E),
+        cardColor: const Color(0xFF2C2C2C),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFFFF6B6B),
+          surface: Color(0xFF2C2C2C),
+        ),
+        hintColor: Colors.white54,
+        shadowColor: Colors.transparent,
       ),
-      home: const MainNavigationScreen(),
+      theme: ThemeData(
+        brightness: Brightness.light,
+        scaffoldBackgroundColor: const Color(0xFFF5F5F5),
+        cardColor: Colors.white,
+        colorScheme: const ColorScheme.light(
+          primary: Color(0xFFFF6B6B),
+          surface: Colors.white,
+        ),
+        hintColor: Colors.black45,
+        shadowColor: Colors.black12,
+      ),
+      home: const LocusHomePage(),
     );
   }
 }
