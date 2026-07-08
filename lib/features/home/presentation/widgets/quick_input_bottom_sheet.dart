@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../../core/di/service_locator.dart';
 import '../../../../core/database/database.dart';
 import '../../../../core/utils/intent_router.dart';
+import '../../../idea_stream/data/idea_repository.dart';
 
 class QuickInputBottomSheet extends StatefulWidget {
   const QuickInputBottomSheet({super.key});
@@ -15,7 +16,7 @@ class QuickInputBottomSheet extends StatefulWidget {
 }
 
 class _QuickInputBottomSheetState extends State<QuickInputBottomSheet> {
-  final db = getIt<AppDatabase>();
+  final _repo = getIt<IdeaRepository>();
   final TextEditingController _textController = TextEditingController();
   final List<String> _pendingMediaPaths = [];
   final ImagePicker _picker = ImagePicker();
@@ -74,7 +75,7 @@ class _QuickInputBottomSheetState extends State<QuickInputBottomSheet> {
       mediaPaths: d.Value(mediaJson),
     );
 
-    await db.insertPayload(entry);
+    await _repo.insert(entry);
 
     if (mounted) Navigator.pop(context); // 发送完毕自动收回控制台
   }

@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/di/service_locator.dart';
 import '../../../core/database/database.dart';
 import '../../../core/utils/intent_router.dart';
+import '../../idea_stream/data/idea_repository.dart';
 
 class TimelinePage extends StatefulWidget {
   const TimelinePage({super.key});
@@ -15,7 +16,7 @@ class TimelinePage extends StatefulWidget {
 }
 
 class _TimelinePageState extends State<TimelinePage> {
-  final db = getIt<AppDatabase>();
+  final _repo = getIt<IdeaRepository>();
   final TextEditingController _textController = TextEditingController();
   
   // 核心状态：暂存当前准备发送的图片路径
@@ -92,7 +93,7 @@ class _TimelinePageState extends State<TimelinePage> {
       mediaPaths: d.Value(mediaJson),
     );
 
-    await db.insertPayload(entry);
+    await _repo.insert(entry);
     
     // 清理现场
     setState(() {
@@ -116,7 +117,7 @@ class _TimelinePageState extends State<TimelinePage> {
           // 1. 上半部分：流式列表
           Expanded(
             child: StreamBuilder<List<HubPayload>>(
-              stream: db.watchAllPayloads(),
+              stream: _repo.watchAll(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());

@@ -16,17 +16,13 @@ class HubPayloads extends Table {
 
   TextColumn get rawText => text()();
 
-  TextColumn get mediaPaths =>
-      text().withDefault(const Constant('[]'))();
+  TextColumn get mediaPaths => text().withDefault(const Constant('[]'))();
 
-  TextColumn get intentTag =>
-      text().withDefault(const Constant('NOTE'))();
+  TextColumn get intentTag => text().withDefault(const Constant('NOTE'))();
 
-  IntColumn get syncStatus =>
-      integer().withDefault(const Constant(0))();
+  IntColumn get syncStatus => integer().withDefault(const Constant(0))();
 
-  DateTimeColumn get createdAt =>
-      dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
 /// 会话表 (ChatSessions) —— 左脑的"记忆抽屉"
@@ -34,14 +30,11 @@ class HubPayloads extends Table {
 class ChatSessions extends Table {
   IntColumn get id => integer().autoIncrement()();
 
-  TextColumn get title =>
-      text().withLength(min: 1, max: 100)();
+  TextColumn get title => text().withLength(min: 1, max: 100)();
 
-  DateTimeColumn get createdAt =>
-      dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 
-  DateTimeColumn get updatedAt =>
-      dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }
 
 /// 消息明细表 (ChatMessages) —— 抽屉里的"具体文件"
@@ -49,15 +42,13 @@ class ChatSessions extends Table {
 class ChatMessages extends Table {
   IntColumn get id => integer().autoIncrement()();
 
-  IntColumn get sessionId =>
-      integer().references(ChatSessions, #id)();
+  IntColumn get sessionId => integer().references(ChatSessions, #id)();
 
   TextColumn get role => text()();
 
   TextColumn get content => text()();
 
-  DateTimeColumn get createdAt =>
-      dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
 /// 长久记忆表 (LongTermMemories) —— 私人系统设定与业务规则
@@ -69,11 +60,9 @@ class LongTermMemories extends Table {
 
   TextColumn get tags => text().nullable()();
 
-  DateTimeColumn get createdAt =>
-      dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 
-  DateTimeColumn get updatedAt =>
-      dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }
 
 /// 知识文件参考库 (KnowledgeFiles) —— 挂载的本地附件库
@@ -89,11 +78,9 @@ class KnowledgeFiles extends Table {
 
   TextColumn get extension => text()();
 
-  BoolColumn get isActive =>
-      boolean().withDefault(const Constant(true))();
+  BoolColumn get isActive => boolean().withDefault(const Constant(true))();
 
-  DateTimeColumn get createdAt =>
-      dateTime().withDefault(currentDateAndTime)();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
 /// 向量存储表 (VectorStorage) —— RAG 知识胶囊
@@ -101,12 +88,67 @@ class KnowledgeFiles extends Table {
 class VectorStorage extends Table {
   IntColumn get id => integer().autoIncrement()();
 
-  IntColumn get sourceFileId =>
-      integer().references(KnowledgeFiles, #id)();
+  IntColumn get sourceFileId => integer().references(KnowledgeFiles, #id)();
 
   TextColumn get content => text()();
 
   // 后续可增加 RealColumn 存储向量数组
+}
+
+/// 闪念任务清单表 (IdeaTasks) —— 闪念笔记的子任务
+/// 每条闪念可派生多个可勾选的任务步骤
+class IdeaTasks extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  IntColumn get payloadId => integer().references(HubPayloads, #id)();
+
+  TextColumn get content => text()();
+
+  BoolColumn get isDone => boolean().withDefault(const Constant(false))();
+
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+/// 内容追加块表 (ContentBlocks) —— 闪念笔记的多轮追加内容
+/// 每条闪念可包含多个内容块（原始录入 + 后续追加），支持文本/图片/文件/录音
+class ContentBlocks extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  IntColumn get payloadId => integer().references(HubPayloads, #id)();
+
+  TextColumn get blockType => text().withDefault(
+      const Constant('text'))(); // 'text', 'voice', 'image', 'file'
+
+  TextColumn get content => text()(); // 文本内容或描述
+
+  TextColumn get mediaPaths =>
+      text().withDefault(const Constant('[]'))(); // JSON数组: 图片/文件路径
+
+  TextColumn get sourceType => text()
+      .withDefault(const Constant('manual'))(); // 'manual' | 'voice' | 'scan'
+
+  BoolColumn get aiPolished =>
+      boolean().withDefault(const Constant(false))(); // AI是否已润色
+
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+/// AI 对话记录表 (AiConversations) —— 闪念详情页的AI交流
+/// 每轮对话包含 role (user/assistant) 和内容
+class AiConversations extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  IntColumn get payloadId => integer().references(HubPayloads, #id)();
+
+  TextColumn get role => text()(); // 'user' | 'assistant'
+
+  TextColumn get content => text()();
+
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
 @DriftDatabase(tables: [
@@ -116,12 +158,15 @@ class VectorStorage extends Table {
   LongTermMemories,
   KnowledgeFiles,
   VectorStorage,
+  IdeaTasks,
+  ContentBlocks,
+  AiConversations,
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration {
@@ -153,6 +198,15 @@ class AppDatabase extends _$AppDatabase {
             'ALTER TABLE knowledge_files ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1',
           );
         }
+        // v6 → v7: 新增 IdeaTasks 表 (闪念任务清单)
+        if (from <= 6) {
+          await m.createTable(ideaTasks);
+        }
+        // v7 → v8: 新增 ContentBlocks + AiConversations 表
+        if (from <= 7) {
+          await m.createTable(contentBlocks);
+          await m.createTable(aiConversations);
+        }
       },
       beforeOpen: (details) async {
         await customStatement('PRAGMA foreign_keys = ON');
@@ -162,6 +216,136 @@ class AppDatabase extends _$AppDatabase {
 
   Future<int> insertPayload(HubPayloadsCompanion entry) {
     return into(hubPayloads).insert(entry);
+  }
+
+  Future<void> updatePayload(int id, String rawText, String intentTag) {
+    return (update(hubPayloads)..where((t) => t.id.equals(id))).write(
+      HubPayloadsCompanion(
+        rawText: Value(rawText),
+        intentTag: Value(intentTag),
+      ),
+    );
+  }
+
+  Future<void> updateMediaPaths(int id, String mediaPaths) {
+    return (update(hubPayloads)..where((t) => t.id.equals(id))).write(
+      HubPayloadsCompanion(mediaPaths: Value(mediaPaths)),
+    );
+  }
+
+  Future<int> deletePayload(int id) {
+    return (delete(hubPayloads)..where((t) => t.id.equals(id))).go();
+  }
+
+  /// 获取所有标签及使用次数统计
+  Future<Map<String, int>> getTagStats() async {
+    final rows = await select(hubPayloads).get();
+    final stats = <String, int>{};
+    for (final row in rows) {
+      if (row.intentTag.isNotEmpty) {
+        for (final tag in row.intentTag.split(' ')) {
+          final t = tag.trim();
+          if (t.isNotEmpty) {
+            stats[t] = (stats[t] ?? 0) + 1;
+          }
+        }
+      }
+    }
+    return stats;
+  }
+
+  // ==================== 任务清单 ====================
+
+  Stream<List<IdeaTask>> watchTasksForPayload(int payloadId) {
+    return (select(ideaTasks)
+          ..where((t) => t.payloadId.equals(payloadId))
+          ..orderBy([(t) => OrderingTerm(expression: t.sortOrder)]))
+        .watch();
+  }
+
+  Future<int> insertTask(int payloadId, String content, [int sortOrder = 0]) {
+    return into(ideaTasks).insert(
+      IdeaTasksCompanion.insert(
+        payloadId: payloadId,
+        content: content,
+        sortOrder: Value(sortOrder),
+      ),
+    );
+  }
+
+  Future<void> toggleTask(int taskId, bool isDone) {
+    return (update(ideaTasks)..where((t) => t.id.equals(taskId))).write(
+      IdeaTasksCompanion(isDone: Value(isDone)),
+    );
+  }
+
+  Future<int> deleteTask(int taskId) {
+    return (delete(ideaTasks)..where((t) => t.id.equals(taskId))).go();
+  }
+
+  /// 删除某条闪念对应的所有任务
+  Future<int> deleteTasksForPayload(int payloadId) {
+    return (delete(ideaTasks)..where((t) => t.payloadId.equals(payloadId)))
+        .go();
+  }
+
+  // ==================== 内容块 ====================
+
+  Stream<List<ContentBlock>> watchBlocksForPayload(int payloadId) {
+    return (select(contentBlocks)
+          ..where((t) => t.payloadId.equals(payloadId))
+          ..orderBy([(t) => OrderingTerm(expression: t.sortOrder)]))
+        .watch();
+  }
+
+  Future<int> insertBlock(
+      int payloadId, String blockType, String content, String mediaPaths,
+      [String sourceType = 'manual']) {
+    return into(contentBlocks).insert(
+      ContentBlocksCompanion.insert(
+        payloadId: payloadId,
+        blockType: Value(blockType),
+        content: content,
+        mediaPaths: Value(mediaPaths),
+        sourceType: Value(sourceType),
+      ),
+    );
+  }
+
+  Future<void> updateBlock(int blockId, String content, String mediaPaths) {
+    return (update(contentBlocks)..where((t) => t.id.equals(blockId))).write(
+      ContentBlocksCompanion(
+          content: Value(content), mediaPaths: Value(mediaPaths)),
+    );
+  }
+
+  Future<void> setBlockAiPolished(int blockId) {
+    return (update(contentBlocks)..where((t) => t.id.equals(blockId))).write(
+      const ContentBlocksCompanion(aiPolished: Value(true)),
+    );
+  }
+
+  Future<int> deleteBlock(int blockId) {
+    return (delete(contentBlocks)..where((t) => t.id.equals(blockId))).go();
+  }
+
+  // ==================== AI 对话 ====================
+
+  Stream<List<AiConversation>> watchConversationsForPayload(int payloadId) {
+    return (select(aiConversations)
+          ..where((t) => t.payloadId.equals(payloadId))
+          ..orderBy([(t) => OrderingTerm(expression: t.createdAt)]))
+        .watch();
+  }
+
+  Future<int> insertConversation(int payloadId, String role, String content) {
+    return into(aiConversations).insert(
+      AiConversationsCompanion.insert(
+        payloadId: payloadId,
+        role: role,
+        content: content,
+      ),
+    );
   }
 
   Stream<List<HubPayload>> watchAllPayloads() {
@@ -284,7 +468,8 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> deleteFile(int id) {
     return transaction(() async {
-      await (delete(vectorStorage)..where((t) => t.sourceFileId.equals(id))).go();
+      await (delete(vectorStorage)..where((t) => t.sourceFileId.equals(id)))
+          .go();
       await (delete(knowledgeFiles)..where((t) => t.id.equals(id))).go();
     });
   }
@@ -324,8 +509,7 @@ class AppDatabase extends _$AppDatabase {
 
     final results = await (select(vectorStorage)
           ..where((t) =>
-              t.sourceFileId.isIn(activeFileIds) &
-              t.content.like('%$query%'))
+              t.sourceFileId.isIn(activeFileIds) & t.content.like('%$query%'))
           ..limit(3))
         .get();
 

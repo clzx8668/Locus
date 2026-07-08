@@ -1792,6 +1792,1109 @@ class VectorStorageCompanion extends UpdateCompanion<VectorStorageData> {
   }
 }
 
+class $IdeaTasksTable extends IdeaTasks
+    with TableInfo<$IdeaTasksTable, IdeaTask> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $IdeaTasksTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _payloadIdMeta =
+      const VerificationMeta('payloadId');
+  @override
+  late final GeneratedColumn<int> payloadId = GeneratedColumn<int>(
+      'payload_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('REFERENCES hub_payloads (id)'));
+  static const VerificationMeta _contentMeta =
+      const VerificationMeta('content');
+  @override
+  late final GeneratedColumn<String> content = GeneratedColumn<String>(
+      'content', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _isDoneMeta = const VerificationMeta('isDone');
+  @override
+  late final GeneratedColumn<bool> isDone = GeneratedColumn<bool>(
+      'is_done', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("is_done" IN (0, 1))'),
+      defaultValue: const Constant(false));
+  static const VerificationMeta _sortOrderMeta =
+      const VerificationMeta('sortOrder');
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+      'sort_order', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, payloadId, content, isDone, sortOrder, createdAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'idea_tasks';
+  @override
+  VerificationContext validateIntegrity(Insertable<IdeaTask> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('payload_id')) {
+      context.handle(_payloadIdMeta,
+          payloadId.isAcceptableOrUnknown(data['payload_id']!, _payloadIdMeta));
+    } else if (isInserting) {
+      context.missing(_payloadIdMeta);
+    }
+    if (data.containsKey('content')) {
+      context.handle(_contentMeta,
+          content.isAcceptableOrUnknown(data['content']!, _contentMeta));
+    } else if (isInserting) {
+      context.missing(_contentMeta);
+    }
+    if (data.containsKey('is_done')) {
+      context.handle(_isDoneMeta,
+          isDone.isAcceptableOrUnknown(data['is_done']!, _isDoneMeta));
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(_sortOrderMeta,
+          sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  IdeaTask map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return IdeaTask(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      payloadId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}payload_id'])!,
+      content: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}content'])!,
+      isDone: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_done'])!,
+      sortOrder: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}sort_order'])!,
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+    );
+  }
+
+  @override
+  $IdeaTasksTable createAlias(String alias) {
+    return $IdeaTasksTable(attachedDatabase, alias);
+  }
+}
+
+class IdeaTask extends DataClass implements Insertable<IdeaTask> {
+  final int id;
+  final int payloadId;
+  final String content;
+  final bool isDone;
+  final int sortOrder;
+  final DateTime createdAt;
+  const IdeaTask(
+      {required this.id,
+      required this.payloadId,
+      required this.content,
+      required this.isDone,
+      required this.sortOrder,
+      required this.createdAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['payload_id'] = Variable<int>(payloadId);
+    map['content'] = Variable<String>(content);
+    map['is_done'] = Variable<bool>(isDone);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  IdeaTasksCompanion toCompanion(bool nullToAbsent) {
+    return IdeaTasksCompanion(
+      id: Value(id),
+      payloadId: Value(payloadId),
+      content: Value(content),
+      isDone: Value(isDone),
+      sortOrder: Value(sortOrder),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory IdeaTask.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return IdeaTask(
+      id: serializer.fromJson<int>(json['id']),
+      payloadId: serializer.fromJson<int>(json['payloadId']),
+      content: serializer.fromJson<String>(json['content']),
+      isDone: serializer.fromJson<bool>(json['isDone']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'payloadId': serializer.toJson<int>(payloadId),
+      'content': serializer.toJson<String>(content),
+      'isDone': serializer.toJson<bool>(isDone),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  IdeaTask copyWith(
+          {int? id,
+          int? payloadId,
+          String? content,
+          bool? isDone,
+          int? sortOrder,
+          DateTime? createdAt}) =>
+      IdeaTask(
+        id: id ?? this.id,
+        payloadId: payloadId ?? this.payloadId,
+        content: content ?? this.content,
+        isDone: isDone ?? this.isDone,
+        sortOrder: sortOrder ?? this.sortOrder,
+        createdAt: createdAt ?? this.createdAt,
+      );
+  IdeaTask copyWithCompanion(IdeaTasksCompanion data) {
+    return IdeaTask(
+      id: data.id.present ? data.id.value : this.id,
+      payloadId: data.payloadId.present ? data.payloadId.value : this.payloadId,
+      content: data.content.present ? data.content.value : this.content,
+      isDone: data.isDone.present ? data.isDone.value : this.isDone,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('IdeaTask(')
+          ..write('id: $id, ')
+          ..write('payloadId: $payloadId, ')
+          ..write('content: $content, ')
+          ..write('isDone: $isDone, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(id, payloadId, content, isDone, sortOrder, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is IdeaTask &&
+          other.id == this.id &&
+          other.payloadId == this.payloadId &&
+          other.content == this.content &&
+          other.isDone == this.isDone &&
+          other.sortOrder == this.sortOrder &&
+          other.createdAt == this.createdAt);
+}
+
+class IdeaTasksCompanion extends UpdateCompanion<IdeaTask> {
+  final Value<int> id;
+  final Value<int> payloadId;
+  final Value<String> content;
+  final Value<bool> isDone;
+  final Value<int> sortOrder;
+  final Value<DateTime> createdAt;
+  const IdeaTasksCompanion({
+    this.id = const Value.absent(),
+    this.payloadId = const Value.absent(),
+    this.content = const Value.absent(),
+    this.isDone = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  IdeaTasksCompanion.insert({
+    this.id = const Value.absent(),
+    required int payloadId,
+    required String content,
+    this.isDone = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  })  : payloadId = Value(payloadId),
+        content = Value(content);
+  static Insertable<IdeaTask> custom({
+    Expression<int>? id,
+    Expression<int>? payloadId,
+    Expression<String>? content,
+    Expression<bool>? isDone,
+    Expression<int>? sortOrder,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (payloadId != null) 'payload_id': payloadId,
+      if (content != null) 'content': content,
+      if (isDone != null) 'is_done': isDone,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  IdeaTasksCompanion copyWith(
+      {Value<int>? id,
+      Value<int>? payloadId,
+      Value<String>? content,
+      Value<bool>? isDone,
+      Value<int>? sortOrder,
+      Value<DateTime>? createdAt}) {
+    return IdeaTasksCompanion(
+      id: id ?? this.id,
+      payloadId: payloadId ?? this.payloadId,
+      content: content ?? this.content,
+      isDone: isDone ?? this.isDone,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (payloadId.present) {
+      map['payload_id'] = Variable<int>(payloadId.value);
+    }
+    if (content.present) {
+      map['content'] = Variable<String>(content.value);
+    }
+    if (isDone.present) {
+      map['is_done'] = Variable<bool>(isDone.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('IdeaTasksCompanion(')
+          ..write('id: $id, ')
+          ..write('payloadId: $payloadId, ')
+          ..write('content: $content, ')
+          ..write('isDone: $isDone, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ContentBlocksTable extends ContentBlocks
+    with TableInfo<$ContentBlocksTable, ContentBlock> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ContentBlocksTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _payloadIdMeta =
+      const VerificationMeta('payloadId');
+  @override
+  late final GeneratedColumn<int> payloadId = GeneratedColumn<int>(
+      'payload_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('REFERENCES hub_payloads (id)'));
+  static const VerificationMeta _blockTypeMeta =
+      const VerificationMeta('blockType');
+  @override
+  late final GeneratedColumn<String> blockType = GeneratedColumn<String>(
+      'block_type', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('text'));
+  static const VerificationMeta _contentMeta =
+      const VerificationMeta('content');
+  @override
+  late final GeneratedColumn<String> content = GeneratedColumn<String>(
+      'content', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _mediaPathsMeta =
+      const VerificationMeta('mediaPaths');
+  @override
+  late final GeneratedColumn<String> mediaPaths = GeneratedColumn<String>(
+      'media_paths', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('[]'));
+  static const VerificationMeta _sourceTypeMeta =
+      const VerificationMeta('sourceType');
+  @override
+  late final GeneratedColumn<String> sourceType = GeneratedColumn<String>(
+      'source_type', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('manual'));
+  static const VerificationMeta _aiPolishedMeta =
+      const VerificationMeta('aiPolished');
+  @override
+  late final GeneratedColumn<bool> aiPolished = GeneratedColumn<bool>(
+      'ai_polished', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("ai_polished" IN (0, 1))'),
+      defaultValue: const Constant(false));
+  static const VerificationMeta _sortOrderMeta =
+      const VerificationMeta('sortOrder');
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+      'sort_order', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        payloadId,
+        blockType,
+        content,
+        mediaPaths,
+        sourceType,
+        aiPolished,
+        sortOrder,
+        createdAt
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'content_blocks';
+  @override
+  VerificationContext validateIntegrity(Insertable<ContentBlock> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('payload_id')) {
+      context.handle(_payloadIdMeta,
+          payloadId.isAcceptableOrUnknown(data['payload_id']!, _payloadIdMeta));
+    } else if (isInserting) {
+      context.missing(_payloadIdMeta);
+    }
+    if (data.containsKey('block_type')) {
+      context.handle(_blockTypeMeta,
+          blockType.isAcceptableOrUnknown(data['block_type']!, _blockTypeMeta));
+    }
+    if (data.containsKey('content')) {
+      context.handle(_contentMeta,
+          content.isAcceptableOrUnknown(data['content']!, _contentMeta));
+    } else if (isInserting) {
+      context.missing(_contentMeta);
+    }
+    if (data.containsKey('media_paths')) {
+      context.handle(
+          _mediaPathsMeta,
+          mediaPaths.isAcceptableOrUnknown(
+              data['media_paths']!, _mediaPathsMeta));
+    }
+    if (data.containsKey('source_type')) {
+      context.handle(
+          _sourceTypeMeta,
+          sourceType.isAcceptableOrUnknown(
+              data['source_type']!, _sourceTypeMeta));
+    }
+    if (data.containsKey('ai_polished')) {
+      context.handle(
+          _aiPolishedMeta,
+          aiPolished.isAcceptableOrUnknown(
+              data['ai_polished']!, _aiPolishedMeta));
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(_sortOrderMeta,
+          sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ContentBlock map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ContentBlock(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      payloadId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}payload_id'])!,
+      blockType: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}block_type'])!,
+      content: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}content'])!,
+      mediaPaths: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}media_paths'])!,
+      sourceType: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}source_type'])!,
+      aiPolished: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}ai_polished'])!,
+      sortOrder: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}sort_order'])!,
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+    );
+  }
+
+  @override
+  $ContentBlocksTable createAlias(String alias) {
+    return $ContentBlocksTable(attachedDatabase, alias);
+  }
+}
+
+class ContentBlock extends DataClass implements Insertable<ContentBlock> {
+  final int id;
+  final int payloadId;
+  final String blockType;
+  final String content;
+  final String mediaPaths;
+  final String sourceType;
+  final bool aiPolished;
+  final int sortOrder;
+  final DateTime createdAt;
+  const ContentBlock(
+      {required this.id,
+      required this.payloadId,
+      required this.blockType,
+      required this.content,
+      required this.mediaPaths,
+      required this.sourceType,
+      required this.aiPolished,
+      required this.sortOrder,
+      required this.createdAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['payload_id'] = Variable<int>(payloadId);
+    map['block_type'] = Variable<String>(blockType);
+    map['content'] = Variable<String>(content);
+    map['media_paths'] = Variable<String>(mediaPaths);
+    map['source_type'] = Variable<String>(sourceType);
+    map['ai_polished'] = Variable<bool>(aiPolished);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  ContentBlocksCompanion toCompanion(bool nullToAbsent) {
+    return ContentBlocksCompanion(
+      id: Value(id),
+      payloadId: Value(payloadId),
+      blockType: Value(blockType),
+      content: Value(content),
+      mediaPaths: Value(mediaPaths),
+      sourceType: Value(sourceType),
+      aiPolished: Value(aiPolished),
+      sortOrder: Value(sortOrder),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory ContentBlock.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ContentBlock(
+      id: serializer.fromJson<int>(json['id']),
+      payloadId: serializer.fromJson<int>(json['payloadId']),
+      blockType: serializer.fromJson<String>(json['blockType']),
+      content: serializer.fromJson<String>(json['content']),
+      mediaPaths: serializer.fromJson<String>(json['mediaPaths']),
+      sourceType: serializer.fromJson<String>(json['sourceType']),
+      aiPolished: serializer.fromJson<bool>(json['aiPolished']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'payloadId': serializer.toJson<int>(payloadId),
+      'blockType': serializer.toJson<String>(blockType),
+      'content': serializer.toJson<String>(content),
+      'mediaPaths': serializer.toJson<String>(mediaPaths),
+      'sourceType': serializer.toJson<String>(sourceType),
+      'aiPolished': serializer.toJson<bool>(aiPolished),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  ContentBlock copyWith(
+          {int? id,
+          int? payloadId,
+          String? blockType,
+          String? content,
+          String? mediaPaths,
+          String? sourceType,
+          bool? aiPolished,
+          int? sortOrder,
+          DateTime? createdAt}) =>
+      ContentBlock(
+        id: id ?? this.id,
+        payloadId: payloadId ?? this.payloadId,
+        blockType: blockType ?? this.blockType,
+        content: content ?? this.content,
+        mediaPaths: mediaPaths ?? this.mediaPaths,
+        sourceType: sourceType ?? this.sourceType,
+        aiPolished: aiPolished ?? this.aiPolished,
+        sortOrder: sortOrder ?? this.sortOrder,
+        createdAt: createdAt ?? this.createdAt,
+      );
+  ContentBlock copyWithCompanion(ContentBlocksCompanion data) {
+    return ContentBlock(
+      id: data.id.present ? data.id.value : this.id,
+      payloadId: data.payloadId.present ? data.payloadId.value : this.payloadId,
+      blockType: data.blockType.present ? data.blockType.value : this.blockType,
+      content: data.content.present ? data.content.value : this.content,
+      mediaPaths:
+          data.mediaPaths.present ? data.mediaPaths.value : this.mediaPaths,
+      sourceType:
+          data.sourceType.present ? data.sourceType.value : this.sourceType,
+      aiPolished:
+          data.aiPolished.present ? data.aiPolished.value : this.aiPolished,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ContentBlock(')
+          ..write('id: $id, ')
+          ..write('payloadId: $payloadId, ')
+          ..write('blockType: $blockType, ')
+          ..write('content: $content, ')
+          ..write('mediaPaths: $mediaPaths, ')
+          ..write('sourceType: $sourceType, ')
+          ..write('aiPolished: $aiPolished, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, payloadId, blockType, content, mediaPaths,
+      sourceType, aiPolished, sortOrder, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ContentBlock &&
+          other.id == this.id &&
+          other.payloadId == this.payloadId &&
+          other.blockType == this.blockType &&
+          other.content == this.content &&
+          other.mediaPaths == this.mediaPaths &&
+          other.sourceType == this.sourceType &&
+          other.aiPolished == this.aiPolished &&
+          other.sortOrder == this.sortOrder &&
+          other.createdAt == this.createdAt);
+}
+
+class ContentBlocksCompanion extends UpdateCompanion<ContentBlock> {
+  final Value<int> id;
+  final Value<int> payloadId;
+  final Value<String> blockType;
+  final Value<String> content;
+  final Value<String> mediaPaths;
+  final Value<String> sourceType;
+  final Value<bool> aiPolished;
+  final Value<int> sortOrder;
+  final Value<DateTime> createdAt;
+  const ContentBlocksCompanion({
+    this.id = const Value.absent(),
+    this.payloadId = const Value.absent(),
+    this.blockType = const Value.absent(),
+    this.content = const Value.absent(),
+    this.mediaPaths = const Value.absent(),
+    this.sourceType = const Value.absent(),
+    this.aiPolished = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  ContentBlocksCompanion.insert({
+    this.id = const Value.absent(),
+    required int payloadId,
+    this.blockType = const Value.absent(),
+    required String content,
+    this.mediaPaths = const Value.absent(),
+    this.sourceType = const Value.absent(),
+    this.aiPolished = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  })  : payloadId = Value(payloadId),
+        content = Value(content);
+  static Insertable<ContentBlock> custom({
+    Expression<int>? id,
+    Expression<int>? payloadId,
+    Expression<String>? blockType,
+    Expression<String>? content,
+    Expression<String>? mediaPaths,
+    Expression<String>? sourceType,
+    Expression<bool>? aiPolished,
+    Expression<int>? sortOrder,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (payloadId != null) 'payload_id': payloadId,
+      if (blockType != null) 'block_type': blockType,
+      if (content != null) 'content': content,
+      if (mediaPaths != null) 'media_paths': mediaPaths,
+      if (sourceType != null) 'source_type': sourceType,
+      if (aiPolished != null) 'ai_polished': aiPolished,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  ContentBlocksCompanion copyWith(
+      {Value<int>? id,
+      Value<int>? payloadId,
+      Value<String>? blockType,
+      Value<String>? content,
+      Value<String>? mediaPaths,
+      Value<String>? sourceType,
+      Value<bool>? aiPolished,
+      Value<int>? sortOrder,
+      Value<DateTime>? createdAt}) {
+    return ContentBlocksCompanion(
+      id: id ?? this.id,
+      payloadId: payloadId ?? this.payloadId,
+      blockType: blockType ?? this.blockType,
+      content: content ?? this.content,
+      mediaPaths: mediaPaths ?? this.mediaPaths,
+      sourceType: sourceType ?? this.sourceType,
+      aiPolished: aiPolished ?? this.aiPolished,
+      sortOrder: sortOrder ?? this.sortOrder,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (payloadId.present) {
+      map['payload_id'] = Variable<int>(payloadId.value);
+    }
+    if (blockType.present) {
+      map['block_type'] = Variable<String>(blockType.value);
+    }
+    if (content.present) {
+      map['content'] = Variable<String>(content.value);
+    }
+    if (mediaPaths.present) {
+      map['media_paths'] = Variable<String>(mediaPaths.value);
+    }
+    if (sourceType.present) {
+      map['source_type'] = Variable<String>(sourceType.value);
+    }
+    if (aiPolished.present) {
+      map['ai_polished'] = Variable<bool>(aiPolished.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ContentBlocksCompanion(')
+          ..write('id: $id, ')
+          ..write('payloadId: $payloadId, ')
+          ..write('blockType: $blockType, ')
+          ..write('content: $content, ')
+          ..write('mediaPaths: $mediaPaths, ')
+          ..write('sourceType: $sourceType, ')
+          ..write('aiPolished: $aiPolished, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $AiConversationsTable extends AiConversations
+    with TableInfo<$AiConversationsTable, AiConversation> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $AiConversationsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _payloadIdMeta =
+      const VerificationMeta('payloadId');
+  @override
+  late final GeneratedColumn<int> payloadId = GeneratedColumn<int>(
+      'payload_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('REFERENCES hub_payloads (id)'));
+  static const VerificationMeta _roleMeta = const VerificationMeta('role');
+  @override
+  late final GeneratedColumn<String> role = GeneratedColumn<String>(
+      'role', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _contentMeta =
+      const VerificationMeta('content');
+  @override
+  late final GeneratedColumn<String> content = GeneratedColumn<String>(
+      'content', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, payloadId, role, content, createdAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'ai_conversations';
+  @override
+  VerificationContext validateIntegrity(Insertable<AiConversation> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('payload_id')) {
+      context.handle(_payloadIdMeta,
+          payloadId.isAcceptableOrUnknown(data['payload_id']!, _payloadIdMeta));
+    } else if (isInserting) {
+      context.missing(_payloadIdMeta);
+    }
+    if (data.containsKey('role')) {
+      context.handle(
+          _roleMeta, role.isAcceptableOrUnknown(data['role']!, _roleMeta));
+    } else if (isInserting) {
+      context.missing(_roleMeta);
+    }
+    if (data.containsKey('content')) {
+      context.handle(_contentMeta,
+          content.isAcceptableOrUnknown(data['content']!, _contentMeta));
+    } else if (isInserting) {
+      context.missing(_contentMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  AiConversation map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return AiConversation(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      payloadId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}payload_id'])!,
+      role: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}role'])!,
+      content: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}content'])!,
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+    );
+  }
+
+  @override
+  $AiConversationsTable createAlias(String alias) {
+    return $AiConversationsTable(attachedDatabase, alias);
+  }
+}
+
+class AiConversation extends DataClass implements Insertable<AiConversation> {
+  final int id;
+  final int payloadId;
+  final String role;
+  final String content;
+  final DateTime createdAt;
+  const AiConversation(
+      {required this.id,
+      required this.payloadId,
+      required this.role,
+      required this.content,
+      required this.createdAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['payload_id'] = Variable<int>(payloadId);
+    map['role'] = Variable<String>(role);
+    map['content'] = Variable<String>(content);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  AiConversationsCompanion toCompanion(bool nullToAbsent) {
+    return AiConversationsCompanion(
+      id: Value(id),
+      payloadId: Value(payloadId),
+      role: Value(role),
+      content: Value(content),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory AiConversation.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return AiConversation(
+      id: serializer.fromJson<int>(json['id']),
+      payloadId: serializer.fromJson<int>(json['payloadId']),
+      role: serializer.fromJson<String>(json['role']),
+      content: serializer.fromJson<String>(json['content']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'payloadId': serializer.toJson<int>(payloadId),
+      'role': serializer.toJson<String>(role),
+      'content': serializer.toJson<String>(content),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  AiConversation copyWith(
+          {int? id,
+          int? payloadId,
+          String? role,
+          String? content,
+          DateTime? createdAt}) =>
+      AiConversation(
+        id: id ?? this.id,
+        payloadId: payloadId ?? this.payloadId,
+        role: role ?? this.role,
+        content: content ?? this.content,
+        createdAt: createdAt ?? this.createdAt,
+      );
+  AiConversation copyWithCompanion(AiConversationsCompanion data) {
+    return AiConversation(
+      id: data.id.present ? data.id.value : this.id,
+      payloadId: data.payloadId.present ? data.payloadId.value : this.payloadId,
+      role: data.role.present ? data.role.value : this.role,
+      content: data.content.present ? data.content.value : this.content,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AiConversation(')
+          ..write('id: $id, ')
+          ..write('payloadId: $payloadId, ')
+          ..write('role: $role, ')
+          ..write('content: $content, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, payloadId, role, content, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is AiConversation &&
+          other.id == this.id &&
+          other.payloadId == this.payloadId &&
+          other.role == this.role &&
+          other.content == this.content &&
+          other.createdAt == this.createdAt);
+}
+
+class AiConversationsCompanion extends UpdateCompanion<AiConversation> {
+  final Value<int> id;
+  final Value<int> payloadId;
+  final Value<String> role;
+  final Value<String> content;
+  final Value<DateTime> createdAt;
+  const AiConversationsCompanion({
+    this.id = const Value.absent(),
+    this.payloadId = const Value.absent(),
+    this.role = const Value.absent(),
+    this.content = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  AiConversationsCompanion.insert({
+    this.id = const Value.absent(),
+    required int payloadId,
+    required String role,
+    required String content,
+    this.createdAt = const Value.absent(),
+  })  : payloadId = Value(payloadId),
+        role = Value(role),
+        content = Value(content);
+  static Insertable<AiConversation> custom({
+    Expression<int>? id,
+    Expression<int>? payloadId,
+    Expression<String>? role,
+    Expression<String>? content,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (payloadId != null) 'payload_id': payloadId,
+      if (role != null) 'role': role,
+      if (content != null) 'content': content,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  AiConversationsCompanion copyWith(
+      {Value<int>? id,
+      Value<int>? payloadId,
+      Value<String>? role,
+      Value<String>? content,
+      Value<DateTime>? createdAt}) {
+    return AiConversationsCompanion(
+      id: id ?? this.id,
+      payloadId: payloadId ?? this.payloadId,
+      role: role ?? this.role,
+      content: content ?? this.content,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (payloadId.present) {
+      map['payload_id'] = Variable<int>(payloadId.value);
+    }
+    if (role.present) {
+      map['role'] = Variable<String>(role.value);
+    }
+    if (content.present) {
+      map['content'] = Variable<String>(content.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AiConversationsCompanion(')
+          ..write('id: $id, ')
+          ..write('payloadId: $payloadId, ')
+          ..write('role: $role, ')
+          ..write('content: $content, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -1802,6 +2905,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $LongTermMemoriesTable(this);
   late final $KnowledgeFilesTable knowledgeFiles = $KnowledgeFilesTable(this);
   late final $VectorStorageTable vectorStorage = $VectorStorageTable(this);
+  late final $IdeaTasksTable ideaTasks = $IdeaTasksTable(this);
+  late final $ContentBlocksTable contentBlocks = $ContentBlocksTable(this);
+  late final $AiConversationsTable aiConversations =
+      $AiConversationsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -1812,7 +2919,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         chatMessages,
         longTermMemories,
         knowledgeFiles,
-        vectorStorage
+        vectorStorage,
+        ideaTasks,
+        contentBlocks,
+        aiConversations
       ];
 }
 
@@ -1834,6 +2944,58 @@ typedef $$HubPayloadsTableUpdateCompanionBuilder = HubPayloadsCompanion
   Value<int> syncStatus,
   Value<DateTime> createdAt,
 });
+
+final class $$HubPayloadsTableReferences
+    extends BaseReferences<_$AppDatabase, $HubPayloadsTable, HubPayload> {
+  $$HubPayloadsTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static MultiTypedResultKey<$IdeaTasksTable, List<IdeaTask>>
+      _ideaTasksRefsTable(_$AppDatabase db) => MultiTypedResultKey.fromTable(
+          db.ideaTasks,
+          aliasName:
+              $_aliasNameGenerator(db.hubPayloads.id, db.ideaTasks.payloadId));
+
+  $$IdeaTasksTableProcessedTableManager get ideaTasksRefs {
+    final manager = $$IdeaTasksTableTableManager($_db, $_db.ideaTasks)
+        .filter((f) => f.payloadId.id($_item.id));
+
+    final cache = $_typedResult.readTableOrNull(_ideaTasksRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+
+  static MultiTypedResultKey<$ContentBlocksTable, List<ContentBlock>>
+      _contentBlocksRefsTable(_$AppDatabase db) =>
+          MultiTypedResultKey.fromTable(db.contentBlocks,
+              aliasName: $_aliasNameGenerator(
+                  db.hubPayloads.id, db.contentBlocks.payloadId));
+
+  $$ContentBlocksTableProcessedTableManager get contentBlocksRefs {
+    final manager = $$ContentBlocksTableTableManager($_db, $_db.contentBlocks)
+        .filter((f) => f.payloadId.id($_item.id));
+
+    final cache = $_typedResult.readTableOrNull(_contentBlocksRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+
+  static MultiTypedResultKey<$AiConversationsTable, List<AiConversation>>
+      _aiConversationsRefsTable(_$AppDatabase db) =>
+          MultiTypedResultKey.fromTable(db.aiConversations,
+              aliasName: $_aliasNameGenerator(
+                  db.hubPayloads.id, db.aiConversations.payloadId));
+
+  $$AiConversationsTableProcessedTableManager get aiConversationsRefs {
+    final manager =
+        $$AiConversationsTableTableManager($_db, $_db.aiConversations)
+            .filter((f) => f.payloadId.id($_item.id));
+
+    final cache =
+        $_typedResult.readTableOrNull(_aiConversationsRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+}
 
 class $$HubPayloadsTableFilterComposer
     extends Composer<_$AppDatabase, $HubPayloadsTable> {
@@ -1861,6 +3023,69 @@ class $$HubPayloadsTableFilterComposer
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  Expression<bool> ideaTasksRefs(
+      Expression<bool> Function($$IdeaTasksTableFilterComposer f) f) {
+    final $$IdeaTasksTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.ideaTasks,
+        getReferencedColumn: (t) => t.payloadId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$IdeaTasksTableFilterComposer(
+              $db: $db,
+              $table: $db.ideaTasks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<bool> contentBlocksRefs(
+      Expression<bool> Function($$ContentBlocksTableFilterComposer f) f) {
+    final $$ContentBlocksTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.contentBlocks,
+        getReferencedColumn: (t) => t.payloadId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$ContentBlocksTableFilterComposer(
+              $db: $db,
+              $table: $db.contentBlocks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<bool> aiConversationsRefs(
+      Expression<bool> Function($$AiConversationsTableFilterComposer f) f) {
+    final $$AiConversationsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.aiConversations,
+        getReferencedColumn: (t) => t.payloadId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$AiConversationsTableFilterComposer(
+              $db: $db,
+              $table: $db.aiConversations,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
 }
 
 class $$HubPayloadsTableOrderingComposer
@@ -1917,6 +3142,69 @@ class $$HubPayloadsTableAnnotationComposer
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  Expression<T> ideaTasksRefs<T extends Object>(
+      Expression<T> Function($$IdeaTasksTableAnnotationComposer a) f) {
+    final $$IdeaTasksTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.ideaTasks,
+        getReferencedColumn: (t) => t.payloadId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$IdeaTasksTableAnnotationComposer(
+              $db: $db,
+              $table: $db.ideaTasks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<T> contentBlocksRefs<T extends Object>(
+      Expression<T> Function($$ContentBlocksTableAnnotationComposer a) f) {
+    final $$ContentBlocksTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.contentBlocks,
+        getReferencedColumn: (t) => t.payloadId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$ContentBlocksTableAnnotationComposer(
+              $db: $db,
+              $table: $db.contentBlocks,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<T> aiConversationsRefs<T extends Object>(
+      Expression<T> Function($$AiConversationsTableAnnotationComposer a) f) {
+    final $$AiConversationsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.aiConversations,
+        getReferencedColumn: (t) => t.payloadId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$AiConversationsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.aiConversations,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
 }
 
 class $$HubPayloadsTableTableManager extends RootTableManager<
@@ -1928,9 +3216,12 @@ class $$HubPayloadsTableTableManager extends RootTableManager<
     $$HubPayloadsTableAnnotationComposer,
     $$HubPayloadsTableCreateCompanionBuilder,
     $$HubPayloadsTableUpdateCompanionBuilder,
-    (HubPayload, BaseReferences<_$AppDatabase, $HubPayloadsTable, HubPayload>),
+    (HubPayload, $$HubPayloadsTableReferences),
     HubPayload,
-    PrefetchHooks Function()> {
+    PrefetchHooks Function(
+        {bool ideaTasksRefs,
+        bool contentBlocksRefs,
+        bool aiConversationsRefs})> {
   $$HubPayloadsTableTableManager(_$AppDatabase db, $HubPayloadsTable table)
       : super(TableManagerState(
           db: db,
@@ -1974,9 +3265,65 @@ class $$HubPayloadsTableTableManager extends RootTableManager<
             createdAt: createdAt,
           ),
           withReferenceMapper: (p0) => p0
-              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .map((e) => (
+                    e.readTable(table),
+                    $$HubPayloadsTableReferences(db, table, e)
+                  ))
               .toList(),
-          prefetchHooksCallback: null,
+          prefetchHooksCallback: (
+              {ideaTasksRefs = false,
+              contentBlocksRefs = false,
+              aiConversationsRefs = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [
+                if (ideaTasksRefs) db.ideaTasks,
+                if (contentBlocksRefs) db.contentBlocks,
+                if (aiConversationsRefs) db.aiConversations
+              ],
+              addJoins: null,
+              getPrefetchedDataCallback: (items) async {
+                return [
+                  if (ideaTasksRefs)
+                    await $_getPrefetchedData(
+                        currentTable: table,
+                        referencedTable: $$HubPayloadsTableReferences
+                            ._ideaTasksRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$HubPayloadsTableReferences(db, table, p0)
+                                .ideaTasksRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.payloadId == item.id),
+                        typedResults: items),
+                  if (contentBlocksRefs)
+                    await $_getPrefetchedData(
+                        currentTable: table,
+                        referencedTable: $$HubPayloadsTableReferences
+                            ._contentBlocksRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$HubPayloadsTableReferences(db, table, p0)
+                                .contentBlocksRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.payloadId == item.id),
+                        typedResults: items),
+                  if (aiConversationsRefs)
+                    await $_getPrefetchedData(
+                        currentTable: table,
+                        referencedTable: $$HubPayloadsTableReferences
+                            ._aiConversationsRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$HubPayloadsTableReferences(db, table, p0)
+                                .aiConversationsRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.payloadId == item.id),
+                        typedResults: items)
+                ];
+              },
+            );
+          },
         ));
 }
 
@@ -1989,9 +3336,12 @@ typedef $$HubPayloadsTableProcessedTableManager = ProcessedTableManager<
     $$HubPayloadsTableAnnotationComposer,
     $$HubPayloadsTableCreateCompanionBuilder,
     $$HubPayloadsTableUpdateCompanionBuilder,
-    (HubPayload, BaseReferences<_$AppDatabase, $HubPayloadsTable, HubPayload>),
+    (HubPayload, $$HubPayloadsTableReferences),
     HubPayload,
-    PrefetchHooks Function()>;
+    PrefetchHooks Function(
+        {bool ideaTasksRefs,
+        bool contentBlocksRefs,
+        bool aiConversationsRefs})>;
 typedef $$ChatSessionsTableCreateCompanionBuilder = ChatSessionsCompanion
     Function({
   Value<int> id,
@@ -3183,6 +4533,886 @@ typedef $$VectorStorageTableProcessedTableManager = ProcessedTableManager<
     (VectorStorageData, $$VectorStorageTableReferences),
     VectorStorageData,
     PrefetchHooks Function({bool sourceFileId})>;
+typedef $$IdeaTasksTableCreateCompanionBuilder = IdeaTasksCompanion Function({
+  Value<int> id,
+  required int payloadId,
+  required String content,
+  Value<bool> isDone,
+  Value<int> sortOrder,
+  Value<DateTime> createdAt,
+});
+typedef $$IdeaTasksTableUpdateCompanionBuilder = IdeaTasksCompanion Function({
+  Value<int> id,
+  Value<int> payloadId,
+  Value<String> content,
+  Value<bool> isDone,
+  Value<int> sortOrder,
+  Value<DateTime> createdAt,
+});
+
+final class $$IdeaTasksTableReferences
+    extends BaseReferences<_$AppDatabase, $IdeaTasksTable, IdeaTask> {
+  $$IdeaTasksTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $HubPayloadsTable _payloadIdTable(_$AppDatabase db) =>
+      db.hubPayloads.createAlias(
+          $_aliasNameGenerator(db.ideaTasks.payloadId, db.hubPayloads.id));
+
+  $$HubPayloadsTableProcessedTableManager? get payloadId {
+    if ($_item.payloadId == null) return null;
+    final manager = $$HubPayloadsTableTableManager($_db, $_db.hubPayloads)
+        .filter((f) => f.id($_item.payloadId!));
+    final item = $_typedResult.readTableOrNull(_payloadIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$IdeaTasksTableFilterComposer
+    extends Composer<_$AppDatabase, $IdeaTasksTable> {
+  $$IdeaTasksTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get content => $composableBuilder(
+      column: $table.content, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isDone => $composableBuilder(
+      column: $table.isDone, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+      column: $table.sortOrder, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  $$HubPayloadsTableFilterComposer get payloadId {
+    final $$HubPayloadsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.payloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableFilterComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$IdeaTasksTableOrderingComposer
+    extends Composer<_$AppDatabase, $IdeaTasksTable> {
+  $$IdeaTasksTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get content => $composableBuilder(
+      column: $table.content, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get isDone => $composableBuilder(
+      column: $table.isDone, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+      column: $table.sortOrder, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  $$HubPayloadsTableOrderingComposer get payloadId {
+    final $$HubPayloadsTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.payloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableOrderingComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$IdeaTasksTableAnnotationComposer
+    extends Composer<_$AppDatabase, $IdeaTasksTable> {
+  $$IdeaTasksTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get content =>
+      $composableBuilder(column: $table.content, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDone =>
+      $composableBuilder(column: $table.isDone, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  $$HubPayloadsTableAnnotationComposer get payloadId {
+    final $$HubPayloadsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.payloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$IdeaTasksTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $IdeaTasksTable,
+    IdeaTask,
+    $$IdeaTasksTableFilterComposer,
+    $$IdeaTasksTableOrderingComposer,
+    $$IdeaTasksTableAnnotationComposer,
+    $$IdeaTasksTableCreateCompanionBuilder,
+    $$IdeaTasksTableUpdateCompanionBuilder,
+    (IdeaTask, $$IdeaTasksTableReferences),
+    IdeaTask,
+    PrefetchHooks Function({bool payloadId})> {
+  $$IdeaTasksTableTableManager(_$AppDatabase db, $IdeaTasksTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$IdeaTasksTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$IdeaTasksTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$IdeaTasksTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> payloadId = const Value.absent(),
+            Value<String> content = const Value.absent(),
+            Value<bool> isDone = const Value.absent(),
+            Value<int> sortOrder = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+          }) =>
+              IdeaTasksCompanion(
+            id: id,
+            payloadId: payloadId,
+            content: content,
+            isDone: isDone,
+            sortOrder: sortOrder,
+            createdAt: createdAt,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required int payloadId,
+            required String content,
+            Value<bool> isDone = const Value.absent(),
+            Value<int> sortOrder = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+          }) =>
+              IdeaTasksCompanion.insert(
+            id: id,
+            payloadId: payloadId,
+            content: content,
+            isDone: isDone,
+            sortOrder: sortOrder,
+            createdAt: createdAt,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$IdeaTasksTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({payloadId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (payloadId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.payloadId,
+                    referencedTable:
+                        $$IdeaTasksTableReferences._payloadIdTable(db),
+                    referencedColumn:
+                        $$IdeaTasksTableReferences._payloadIdTable(db).id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$IdeaTasksTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $IdeaTasksTable,
+    IdeaTask,
+    $$IdeaTasksTableFilterComposer,
+    $$IdeaTasksTableOrderingComposer,
+    $$IdeaTasksTableAnnotationComposer,
+    $$IdeaTasksTableCreateCompanionBuilder,
+    $$IdeaTasksTableUpdateCompanionBuilder,
+    (IdeaTask, $$IdeaTasksTableReferences),
+    IdeaTask,
+    PrefetchHooks Function({bool payloadId})>;
+typedef $$ContentBlocksTableCreateCompanionBuilder = ContentBlocksCompanion
+    Function({
+  Value<int> id,
+  required int payloadId,
+  Value<String> blockType,
+  required String content,
+  Value<String> mediaPaths,
+  Value<String> sourceType,
+  Value<bool> aiPolished,
+  Value<int> sortOrder,
+  Value<DateTime> createdAt,
+});
+typedef $$ContentBlocksTableUpdateCompanionBuilder = ContentBlocksCompanion
+    Function({
+  Value<int> id,
+  Value<int> payloadId,
+  Value<String> blockType,
+  Value<String> content,
+  Value<String> mediaPaths,
+  Value<String> sourceType,
+  Value<bool> aiPolished,
+  Value<int> sortOrder,
+  Value<DateTime> createdAt,
+});
+
+final class $$ContentBlocksTableReferences
+    extends BaseReferences<_$AppDatabase, $ContentBlocksTable, ContentBlock> {
+  $$ContentBlocksTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static $HubPayloadsTable _payloadIdTable(_$AppDatabase db) =>
+      db.hubPayloads.createAlias(
+          $_aliasNameGenerator(db.contentBlocks.payloadId, db.hubPayloads.id));
+
+  $$HubPayloadsTableProcessedTableManager? get payloadId {
+    if ($_item.payloadId == null) return null;
+    final manager = $$HubPayloadsTableTableManager($_db, $_db.hubPayloads)
+        .filter((f) => f.id($_item.payloadId!));
+    final item = $_typedResult.readTableOrNull(_payloadIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$ContentBlocksTableFilterComposer
+    extends Composer<_$AppDatabase, $ContentBlocksTable> {
+  $$ContentBlocksTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get blockType => $composableBuilder(
+      column: $table.blockType, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get content => $composableBuilder(
+      column: $table.content, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get mediaPaths => $composableBuilder(
+      column: $table.mediaPaths, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get sourceType => $composableBuilder(
+      column: $table.sourceType, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get aiPolished => $composableBuilder(
+      column: $table.aiPolished, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+      column: $table.sortOrder, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  $$HubPayloadsTableFilterComposer get payloadId {
+    final $$HubPayloadsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.payloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableFilterComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$ContentBlocksTableOrderingComposer
+    extends Composer<_$AppDatabase, $ContentBlocksTable> {
+  $$ContentBlocksTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get blockType => $composableBuilder(
+      column: $table.blockType, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get content => $composableBuilder(
+      column: $table.content, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get mediaPaths => $composableBuilder(
+      column: $table.mediaPaths, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get sourceType => $composableBuilder(
+      column: $table.sourceType, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get aiPolished => $composableBuilder(
+      column: $table.aiPolished, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+      column: $table.sortOrder, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  $$HubPayloadsTableOrderingComposer get payloadId {
+    final $$HubPayloadsTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.payloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableOrderingComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$ContentBlocksTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ContentBlocksTable> {
+  $$ContentBlocksTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get blockType =>
+      $composableBuilder(column: $table.blockType, builder: (column) => column);
+
+  GeneratedColumn<String> get content =>
+      $composableBuilder(column: $table.content, builder: (column) => column);
+
+  GeneratedColumn<String> get mediaPaths => $composableBuilder(
+      column: $table.mediaPaths, builder: (column) => column);
+
+  GeneratedColumn<String> get sourceType => $composableBuilder(
+      column: $table.sourceType, builder: (column) => column);
+
+  GeneratedColumn<bool> get aiPolished => $composableBuilder(
+      column: $table.aiPolished, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  $$HubPayloadsTableAnnotationComposer get payloadId {
+    final $$HubPayloadsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.payloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$ContentBlocksTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $ContentBlocksTable,
+    ContentBlock,
+    $$ContentBlocksTableFilterComposer,
+    $$ContentBlocksTableOrderingComposer,
+    $$ContentBlocksTableAnnotationComposer,
+    $$ContentBlocksTableCreateCompanionBuilder,
+    $$ContentBlocksTableUpdateCompanionBuilder,
+    (ContentBlock, $$ContentBlocksTableReferences),
+    ContentBlock,
+    PrefetchHooks Function({bool payloadId})> {
+  $$ContentBlocksTableTableManager(_$AppDatabase db, $ContentBlocksTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ContentBlocksTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ContentBlocksTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ContentBlocksTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> payloadId = const Value.absent(),
+            Value<String> blockType = const Value.absent(),
+            Value<String> content = const Value.absent(),
+            Value<String> mediaPaths = const Value.absent(),
+            Value<String> sourceType = const Value.absent(),
+            Value<bool> aiPolished = const Value.absent(),
+            Value<int> sortOrder = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+          }) =>
+              ContentBlocksCompanion(
+            id: id,
+            payloadId: payloadId,
+            blockType: blockType,
+            content: content,
+            mediaPaths: mediaPaths,
+            sourceType: sourceType,
+            aiPolished: aiPolished,
+            sortOrder: sortOrder,
+            createdAt: createdAt,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required int payloadId,
+            Value<String> blockType = const Value.absent(),
+            required String content,
+            Value<String> mediaPaths = const Value.absent(),
+            Value<String> sourceType = const Value.absent(),
+            Value<bool> aiPolished = const Value.absent(),
+            Value<int> sortOrder = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+          }) =>
+              ContentBlocksCompanion.insert(
+            id: id,
+            payloadId: payloadId,
+            blockType: blockType,
+            content: content,
+            mediaPaths: mediaPaths,
+            sourceType: sourceType,
+            aiPolished: aiPolished,
+            sortOrder: sortOrder,
+            createdAt: createdAt,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$ContentBlocksTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({payloadId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (payloadId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.payloadId,
+                    referencedTable:
+                        $$ContentBlocksTableReferences._payloadIdTable(db),
+                    referencedColumn:
+                        $$ContentBlocksTableReferences._payloadIdTable(db).id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$ContentBlocksTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $ContentBlocksTable,
+    ContentBlock,
+    $$ContentBlocksTableFilterComposer,
+    $$ContentBlocksTableOrderingComposer,
+    $$ContentBlocksTableAnnotationComposer,
+    $$ContentBlocksTableCreateCompanionBuilder,
+    $$ContentBlocksTableUpdateCompanionBuilder,
+    (ContentBlock, $$ContentBlocksTableReferences),
+    ContentBlock,
+    PrefetchHooks Function({bool payloadId})>;
+typedef $$AiConversationsTableCreateCompanionBuilder = AiConversationsCompanion
+    Function({
+  Value<int> id,
+  required int payloadId,
+  required String role,
+  required String content,
+  Value<DateTime> createdAt,
+});
+typedef $$AiConversationsTableUpdateCompanionBuilder = AiConversationsCompanion
+    Function({
+  Value<int> id,
+  Value<int> payloadId,
+  Value<String> role,
+  Value<String> content,
+  Value<DateTime> createdAt,
+});
+
+final class $$AiConversationsTableReferences extends BaseReferences<
+    _$AppDatabase, $AiConversationsTable, AiConversation> {
+  $$AiConversationsTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static $HubPayloadsTable _payloadIdTable(_$AppDatabase db) =>
+      db.hubPayloads.createAlias($_aliasNameGenerator(
+          db.aiConversations.payloadId, db.hubPayloads.id));
+
+  $$HubPayloadsTableProcessedTableManager? get payloadId {
+    if ($_item.payloadId == null) return null;
+    final manager = $$HubPayloadsTableTableManager($_db, $_db.hubPayloads)
+        .filter((f) => f.id($_item.payloadId!));
+    final item = $_typedResult.readTableOrNull(_payloadIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$AiConversationsTableFilterComposer
+    extends Composer<_$AppDatabase, $AiConversationsTable> {
+  $$AiConversationsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get role => $composableBuilder(
+      column: $table.role, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get content => $composableBuilder(
+      column: $table.content, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  $$HubPayloadsTableFilterComposer get payloadId {
+    final $$HubPayloadsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.payloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableFilterComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$AiConversationsTableOrderingComposer
+    extends Composer<_$AppDatabase, $AiConversationsTable> {
+  $$AiConversationsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get role => $composableBuilder(
+      column: $table.role, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get content => $composableBuilder(
+      column: $table.content, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  $$HubPayloadsTableOrderingComposer get payloadId {
+    final $$HubPayloadsTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.payloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableOrderingComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$AiConversationsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $AiConversationsTable> {
+  $$AiConversationsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get role =>
+      $composableBuilder(column: $table.role, builder: (column) => column);
+
+  GeneratedColumn<String> get content =>
+      $composableBuilder(column: $table.content, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  $$HubPayloadsTableAnnotationComposer get payloadId {
+    final $$HubPayloadsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.payloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$AiConversationsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $AiConversationsTable,
+    AiConversation,
+    $$AiConversationsTableFilterComposer,
+    $$AiConversationsTableOrderingComposer,
+    $$AiConversationsTableAnnotationComposer,
+    $$AiConversationsTableCreateCompanionBuilder,
+    $$AiConversationsTableUpdateCompanionBuilder,
+    (AiConversation, $$AiConversationsTableReferences),
+    AiConversation,
+    PrefetchHooks Function({bool payloadId})> {
+  $$AiConversationsTableTableManager(
+      _$AppDatabase db, $AiConversationsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$AiConversationsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$AiConversationsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$AiConversationsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> payloadId = const Value.absent(),
+            Value<String> role = const Value.absent(),
+            Value<String> content = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+          }) =>
+              AiConversationsCompanion(
+            id: id,
+            payloadId: payloadId,
+            role: role,
+            content: content,
+            createdAt: createdAt,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required int payloadId,
+            required String role,
+            required String content,
+            Value<DateTime> createdAt = const Value.absent(),
+          }) =>
+              AiConversationsCompanion.insert(
+            id: id,
+            payloadId: payloadId,
+            role: role,
+            content: content,
+            createdAt: createdAt,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$AiConversationsTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({payloadId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (payloadId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.payloadId,
+                    referencedTable:
+                        $$AiConversationsTableReferences._payloadIdTable(db),
+                    referencedColumn:
+                        $$AiConversationsTableReferences._payloadIdTable(db).id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$AiConversationsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $AiConversationsTable,
+    AiConversation,
+    $$AiConversationsTableFilterComposer,
+    $$AiConversationsTableOrderingComposer,
+    $$AiConversationsTableAnnotationComposer,
+    $$AiConversationsTableCreateCompanionBuilder,
+    $$AiConversationsTableUpdateCompanionBuilder,
+    (AiConversation, $$AiConversationsTableReferences),
+    AiConversation,
+    PrefetchHooks Function({bool payloadId})>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -3199,4 +5429,10 @@ class $AppDatabaseManager {
       $$KnowledgeFilesTableTableManager(_db, _db.knowledgeFiles);
   $$VectorStorageTableTableManager get vectorStorage =>
       $$VectorStorageTableTableManager(_db, _db.vectorStorage);
+  $$IdeaTasksTableTableManager get ideaTasks =>
+      $$IdeaTasksTableTableManager(_db, _db.ideaTasks);
+  $$ContentBlocksTableTableManager get contentBlocks =>
+      $$ContentBlocksTableTableManager(_db, _db.contentBlocks);
+  $$AiConversationsTableTableManager get aiConversations =>
+      $$AiConversationsTableTableManager(_db, _db.aiConversations);
 }

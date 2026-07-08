@@ -3,19 +3,25 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../../core/di/service_locator.dart';
 import '../../../../core/database/database.dart';
+import '../../data/idea_repository.dart';
+import 'idea_detail_page.dart';
 
 class IdeaStreamPage extends StatefulWidget {
-  const IdeaStreamPage({super.key});
+  final ValueChanged<int>? onNavigate;
+
+  const IdeaStreamPage({super.key, this.onNavigate});
 
   @override
   State<IdeaStreamPage> createState() => _IdeaStreamPageState();
 }
 
 class _IdeaStreamPageState extends State<IdeaStreamPage> {
-  final db = getIt<AppDatabase>();
+  final _repo = getIt<IdeaRepository>();
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   String _searchQuery = "";
   bool _isGridView = false;
+  List<String> _selectedTags = [];
 
   @override
   Widget build(BuildContext context) {
@@ -25,8 +31,10 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
     final bool isLargeScreen = screenWidth >= 960;
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor:
           isDark ? const Color(0xFF121212) : const Color(0xFFF6F6F6),
+      drawer: _buildAppDrawer(context, isDark),
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -43,9 +51,10 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                     letterSpacing: 1.2),
               ),
             ),
+            _buildTagFilterBar(isDark),
             Expanded(
               child: StreamBuilder<List<HubPayload>>(
-                stream: db.watchAllPayloads(),
+                stream: _repo.watchAll(),
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) {
                     return const Center(
@@ -54,25 +63,26 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                   }
 
                   var items = snapshot.data!.where((item) {
-                    return item.rawText
+                    final matchesSearch = _searchQuery.isEmpty ||
+                        item.rawText
                             .toLowerCase()
                             .contains(_searchQuery.toLowerCase()) ||
                         item.intentTag
                             .toLowerCase()
                             .contains(_searchQuery.toLowerCase());
+                    final matchesTags = _selectedTags.isEmpty ||
+                        _selectedTags.any((tag) => item.intentTag
+                            .toLowerCase()
+                            .contains(tag.toLowerCase()));
+                    return matchesSearch && matchesTags;
                   }).toList();
 
                   if (items.isEmpty) {
-                    return Center(
-                      child: Text(
-                        '核心私库无归档，点击快捷气泡极速收录',
-                        style: TextStyle(color: theme.hintColor),
-                      ),
-                    );
+                    return _buildEmptyState(theme);
                   }
 
                   final useGrid = _isGridView || isLargeScreen;
-                  return useGrid
+                  final listOrGrid = useGrid
                       ? GridView.builder(
                           padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
                           gridDelegate:
@@ -94,12 +104,242 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                           itemBuilder: (context, index) =>
                               _buildSmartCard(items[index], theme),
                         );
+                  return listOrGrid;
                 },
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildEmptyState(ThemeData theme) {
+    final isDark = theme.brightness == Brightness.dark;
+    final templates = [
+      {
+        'icon': Icons.record_voice_over_rounded,
+        'label': '会议纪要',
+        'hint': '2026年度Q3季度复盘会议...'
+      },
+      {
+        'icon': Icons.auto_stories_rounded,
+        'label': '读书笔记',
+        'hint': '《原则》第二章核心观点...'
+      },
+      {
+        'icon': Icons.wb_incandescent_rounded,
+        'label': '灵感闪记',
+        'hint': '突然想到一个关于XXX的点子...'
+      },
+    ];
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF6B6B).withValues(alpha: 0.08),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.flash_on_rounded,
+                  size: 36,
+                  color: const Color(0xFFFF6B6B).withValues(alpha: 0.5)),
+            ),
+            const SizedBox(height: 20),
+            Text('闪念已清空',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: theme.textTheme.bodyLarge?.color
+                        ?.withValues(alpha: 0.5))),
+            const SizedBox(height: 6),
+            Text('点击右下角 + 号快速收录灵感',
+                style: TextStyle(fontSize: 13, color: theme.hintColor)),
+            const SizedBox(height: 32),
+            Text('试试这些模板：',
+                style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+            const SizedBox(height: 14),
+            ...templates.map((tpl) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: GestureDetector(
+                  onTap: () {
+                    // 导航到快速输入弹窗并预填模板
+                    _openQuickInputWithTemplate(tpl['hint'] as String);
+                  },
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 12, horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? const Color(0xFF1E1E1E)
+                          : const Color(0xFFF8F8F8),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: theme.dividerColor.withValues(alpha: 0.06),
+                          width: 1),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(tpl['icon'] as IconData,
+                            size: 20,
+                            color:
+                                const Color(0xFFFF6B6B).withValues(alpha: 0.6)),
+                        const SizedBox(width: 12),
+                        Text(tpl['label'] as String,
+                            style: TextStyle(
+                                fontSize: 14,
+                                color: theme.textTheme.bodyMedium?.color)),
+                        const Spacer(),
+                        Icon(Icons.arrow_forward_ios_rounded,
+                            size: 12, color: Colors.grey[600]),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openQuickInputWithTemplate(String hint) {
+    // TODO: 接入 LocusHomePage 的 QuickInputBottomSheet 并预填模板文本
+    // 当前通过设置 _searchQuery 作为临时预填方案
+    setState(() => _searchQuery = '');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('模板提示: $hint'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Widget _buildTagFilterBar(bool isDark) {
+    return FutureBuilder<Map<String, int>>(
+      future: _repo.getTagStats(),
+      builder: (context, snapshot) {
+        final stats = snapshot.data ?? {};
+        if (stats.isEmpty) return const SizedBox.shrink();
+
+        final sortedTags = stats.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+
+        return Container(
+          height: 36,
+          margin: const EdgeInsets.only(bottom: 4),
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            itemCount: sortedTags.length + 1,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                // "全部" 按钮
+                final isAll = _selectedTags.isEmpty;
+                return GestureDetector(
+                  onTap: () => setState(() => _selectedTags = []),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: isAll
+                          ? const Color(0xFFFF6B6B)
+                          : (isDark
+                              ? const Color(0xFF262626)
+                              : const Color(0xFFF1F3F5)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text('全部',
+                        style: TextStyle(
+                            color: isAll ? Colors.white : Colors.grey[500],
+                            fontSize: 12,
+                            fontWeight:
+                                isAll ? FontWeight.bold : FontWeight.normal)),
+                  ),
+                );
+              }
+
+              final tag = sortedTags[index - 1].key;
+              final count = sortedTags[index - 1].value;
+              final isSelected = _selectedTags.contains(tag);
+
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    if (isSelected) {
+                      _selectedTags.remove(tag);
+                    } else {
+                      _selectedTags = [tag];
+                    }
+                  });
+                },
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? const Color(0xFFFF6B6B).withValues(alpha: 0.12)
+                        : (isDark
+                            ? const Color(0xFF262626)
+                            : const Color(0xFFF1F3F5)),
+                    borderRadius: BorderRadius.circular(8),
+                    border: isSelected
+                        ? Border.all(
+                            color:
+                                const Color(0xFFFF6B6B).withValues(alpha: 0.3),
+                            width: 1)
+                        : null,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        tag.startsWith('#') ? tag.substring(1) : tag,
+                        style: TextStyle(
+                            color: isSelected
+                                ? const Color(0xFFFF6B6B)
+                                : Colors.grey[400],
+                            fontSize: 12,
+                            fontWeight: isSelected
+                                ? FontWeight.w600
+                                : FontWeight.normal),
+                      ),
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? const Color(0xFFFF6B6B).withValues(alpha: 0.2)
+                              : Colors.grey[700]!,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text('$count',
+                            style: TextStyle(
+                                color: isSelected
+                                    ? const Color(0xFFFF6B6B)
+                                    : Colors.grey[500],
+                                fontSize: 10)),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 
@@ -126,7 +366,7 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
           if (isSmallScreen) ...[
             IconButton(
               icon: const Icon(Icons.menu_rounded, size: 22),
-              onPressed: () => Scaffold.of(context).openDrawer(),
+              onPressed: () => _scaffoldKey.currentState?.openDrawer(),
             ),
             const SizedBox(width: 4),
           ],
@@ -188,69 +428,212 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
   }
 
   Widget _buildSmartCard(HubPayload data, ThemeData theme) {
-    final hasTag = data.intentTag.isNotEmpty;
+    final hasTag = data.intentTag.isNotEmpty && data.intentTag != 'NOTE';
     final mediaPaths = _parseImagePaths(data.mediaPaths);
-    final dateStr =
-        '${data.createdAt.month}月${data.createdAt.day}日 ${data.createdAt.hour.toString().padLeft(2, '0')}:${data.createdAt.minute.toString().padLeft(2, '0')}';
+    final dateStr = _formatRelativeTime(data.createdAt);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-            color: theme.dividerColor.withValues(alpha: 0.08), width: 1),
-      ),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(dateStr,
-                  style: TextStyle(color: theme.hintColor, fontSize: 11)),
-              if (hasTag)
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFF6B6B).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    data.intentTag.toUpperCase(),
-                    style: const TextStyle(
-                        color: Color(0xFFFF6B6B),
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold),
-                  ),
-                ),
-            ],
+    final card = GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => IdeaDetailPage(payload: data),
           ),
-          const SizedBox(height: 10),
-          if (mediaPaths.isNotEmpty) ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.file(
-                File(mediaPaths.first),
-                height: 100,
-                width: double.infinity,
-                fit: BoxFit.cover,
+        );
+      },
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: theme.cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+              color: theme.dividerColor.withValues(alpha: 0.08), width: 1),
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(dateStr,
+                    style: TextStyle(color: theme.hintColor, fontSize: 11)),
+                if (hasTag)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF6B6B).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      data.intentTag.toUpperCase(),
+                      style: const TextStyle(
+                          color: Color(0xFFFF6B6B),
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (mediaPaths.isNotEmpty && !_isGridView) ...[
+              _buildImagePreview(mediaPaths),
+              const SizedBox(height: 8),
+            ],
+            Flexible(
+              child: Text(
+                data.rawText.isEmpty ? "快速归档记录" : data.rawText,
+                maxLines: _isGridView ? 5 : 6,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    fontSize: 14, height: 1.45, fontWeight: FontWeight.w500),
               ),
             ),
-            const SizedBox(height: 8),
           ],
-          Text(
-            data.rawText.isEmpty ? "快速归档记录" : data.rawText,
-            maxLines: _isGridView ? 3 : 6,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-                fontSize: 14, height: 1.45, fontWeight: FontWeight.w500),
-          ),
-        ],
+        ),
       ),
     );
+
+    return Dismissible(
+      key: Key('payload_${data.id}'),
+      direction: DismissDirection.endToStart,
+      confirmDismiss: (direction) async {
+        return await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('确认删除'),
+                content: Text(
+                    '确定要删除"${data.rawText.length > 30 ? '${data.rawText.substring(0, 30)}...' : data.rawText}"吗？'),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('取消')),
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('删除',
+                          style: TextStyle(color: Colors.redAccent))),
+                ],
+              ),
+            ) ??
+            false;
+      },
+      onDismissed: (_) => _repo.delete(data.id),
+      background: Container(
+        margin: const EdgeInsets.only(bottom: 0),
+        decoration: BoxDecoration(
+          color: Colors.redAccent.withValues(alpha: 0.85),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 24),
+        child: const Icon(Icons.delete_outline_rounded,
+            color: Colors.white, size: 22),
+      ),
+      child: card,
+    );
+  }
+
+  Widget _buildImagePreview(List<String> paths) {
+    final count = paths.length;
+    if (count == 1) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.file(
+          File(paths.first),
+          height: 100,
+          width: double.infinity,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => Container(
+            height: 100,
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Center(
+                child: Icon(Icons.broken_image, color: Colors.grey)),
+          ),
+        ),
+      );
+    }
+
+    // 多图堆叠效果
+    final displayPaths = paths.take(3).toList();
+    final extraCount = count - 3;
+
+    return SizedBox(
+      height: 72,
+      child: Stack(
+        children: List.generate(displayPaths.length, (i) {
+          return Positioned(
+            left: i * 18.0,
+            child: Container(
+              width: 56,
+              height: 72,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white, width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.15),
+                    blurRadius: 4,
+                    offset: const Offset(2, 2),
+                  ),
+                ],
+                image: DecorationImage(
+                  image: FileImage(File(displayPaths[i])),
+                  fit: BoxFit.cover,
+                ),
+              ),
+              child: i == 2 && extraCount > 0
+                  ? Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Center(
+                        child: Text('+$extraCount',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold)),
+                      ),
+                    )
+                  : null,
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  String _formatRelativeTime(DateTime date) {
+    final now = DateTime.now();
+    final diff = now.difference(date);
+
+    if (diff.inSeconds < 60) return '刚刚';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}分钟前';
+    if (diff.inHours < 6) return '${diff.inHours}小时前';
+
+    final isToday =
+        date.year == now.year && date.month == now.month && date.day == now.day;
+    if (isToday) {
+      return '今天 ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    }
+
+    final yesterday = now.subtract(const Duration(days: 1));
+    final isYesterday = date.year == yesterday.year &&
+        date.month == yesterday.month &&
+        date.day == yesterday.day;
+    if (isYesterday) {
+      return '昨天 ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+    }
+
+    if (date.year == now.year) {
+      return '${date.month}月${date.day}日';
+    }
+    return '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}';
   }
 
   List<String> _parseImagePaths(String mediaPathsJson) {
@@ -268,5 +651,138 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
     if (hour >= 5 && hour < 12) return '早上好';
     if (hour >= 12 && hour < 18) return '下午好';
     return '晚上好';
+  }
+
+  Widget _buildAppDrawer(BuildContext context, bool isDark) {
+    final theme = Theme.of(context);
+    final drawerBgColor =
+        isDark ? const Color(0xFF1A1A1A) : const Color(0xFF212121);
+
+    final menuItems = [
+      {'label': '首页', 'icon': Icons.flash_on, 'selected': false},
+      {'label': '日历', 'icon': Icons.calendar_month, 'selected': false},
+      {'label': 'AI枢纽', 'icon': Icons.hub, 'selected': false},
+      {'label': '设置', 'icon': Icons.settings, 'selected': false},
+    ];
+
+    // TODO: 后续在此扩展更多导航项（如客户CRM、记账、打卡等）
+
+    return Drawer(
+      width: 260,
+      backgroundColor: drawerBgColor,
+      child: SafeArea(
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: isDark
+                        ? const Color(0xFF262626)
+                        : const Color(0x33FFFFFF),
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF6B6B),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Center(
+                      child: Text('L',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900)),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Locus',
+                          style: TextStyle(
+                              color: isDark ? Colors.white : Colors.white70,
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 2),
+                      Text('全能型 AI 私人助理',
+                          style:
+                              TextStyle(color: Colors.grey[500], fontSize: 11)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 6),
+                    child: Text('常用',
+                        style: TextStyle(
+                            color: Colors.grey[500],
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.0)),
+                  ),
+                  ...menuItems.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final item = entry.value;
+                    return ListTile(
+                      leading: Icon(
+                        item['icon'] as IconData,
+                        color: Colors.grey[400],
+                        size: 20,
+                      ),
+                      title: Text(
+                        item['label'] as String,
+                        style: TextStyle(color: Colors.grey[300], fontSize: 14),
+                      ),
+                      dense: true,
+                      horizontalTitleGap: 12,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                      onTap: () {
+                        _scaffoldKey.currentState?.closeDrawer();
+                        widget.onNavigate?.call(index);
+                      },
+                    );
+                  }),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 6),
+                    child: Text('更多',
+                        style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.0)),
+                  ),
+                  // TODO: 后续在此添加更多功能入口
+                  ListTile(
+                    leading: Icon(Icons.more_horiz,
+                        color: Colors.grey[600], size: 20),
+                    title: Text('即将上线...',
+                        style:
+                            TextStyle(color: Colors.grey[600], fontSize: 13)),
+                    dense: true,
+                    horizontalTitleGap: 12,
+                    enabled: false,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

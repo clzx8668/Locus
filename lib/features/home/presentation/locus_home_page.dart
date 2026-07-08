@@ -15,12 +15,12 @@ class LocusHomePage extends StatefulWidget {
 class _LocusHomePageState extends State<LocusHomePage> {
   int _currentIndex = 0;
 
-  final List<Widget> _pages = [
-    const IdeaStreamPage(),
-    const CalendarPage(),
-    const AiHubPage(),
-    const SettingsPage(),
-  ];
+  List<Widget> get _pages => [
+        IdeaStreamPage(onNavigate: (index) => setState(() => _currentIndex = index)),
+        const CalendarPage(),
+        const AiHubPage(),
+        const SettingsPage(),
+      ];
 
   bool _isRightSide = true;
   bool _isCollapsed = false;
