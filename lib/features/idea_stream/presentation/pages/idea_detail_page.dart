@@ -6,6 +6,7 @@ import '../../../../core/database/database.dart';
 import '../../../../core/services/ai_engine.dart';
 import '../../data/idea_repository.dart';
 import '../widgets/content_block_editor.dart';
+import '../widgets/full_block_editor.dart';
 
 class IdeaDetailPage extends StatefulWidget {
   final HubPayload payload;
@@ -61,8 +62,11 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             widget.payload.rawText,
             _parseMediaPaths(widget.payload.mediaPaths),
           );
-          // 清空 payload 的 rawText 避免重复
-          _repo.update(widget.payload.id, '', widget.payload.intentTag);
+          // 保留前200字作为列表卡片摘要
+          final preview = widget.payload.rawText.length > 200
+              ? '${widget.payload.rawText.substring(0, 200)}...'
+              : widget.payload.rawText;
+          _repo.update(widget.payload.id, preview, widget.payload.intentTag);
         }
       });
     } catch (_) {}
@@ -87,18 +91,11 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   // ==================== 内容块操作 ====================
 
   Future<void> _openBlockEditor({int? blockId}) async {
-    ContentBlock? existingBlock;
-    if (blockId != null) {
-      // 先获取当前块内容——简单起见用 null 表示新建
-    }
-
-    final result = await showModalBottomSheet<BlockEditResult>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => ContentBlockEditor(
-        initialContent: null,
-        initialMediaPaths: null,
+    final result = await Navigator.push<BlockEditResult>(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const FullBlockEditor(),
       ),
     );
 
@@ -110,6 +107,12 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         result.content,
         result.mediaPaths,
       );
+      if (result.content.isNotEmpty) {
+        final preview = result.content.length > 200
+            ? '${result.content.substring(0, 200)}...'
+            : result.content;
+        _repo.update(widget.payload.id, preview, widget.payload.intentTag);
+      }
     }
   }
 
@@ -290,13 +293,14 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   }
 
   void _openBlockEditorForEdit(ContentBlock block) async {
-    final result = await showModalBottomSheet<BlockEditResult>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => ContentBlockEditor(
-        initialContent: block.content,
-        initialMediaPaths: _parseMediaPaths(block.mediaPaths),
+    final result = await Navigator.push<BlockEditResult>(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => FullBlockEditor(
+          initialContent: block.content,
+          initialMediaPaths: _parseMediaPaths(block.mediaPaths),
+        ),
       ),
     );
 

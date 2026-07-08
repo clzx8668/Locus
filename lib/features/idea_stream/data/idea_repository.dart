@@ -76,6 +76,13 @@ class IdeaRepository {
   /// 删除内容块
   Future<int> removeBlock(int blockId) => _db.deleteBlock(blockId);
 
+  /// 获取某条闪念的第一个内容块文本（卡片摘要用）
+  Future<String?> getFirstBlockText(int payloadId) async {
+    final blocks = await _db.watchBlocksForPayload(payloadId).first;
+    if (blocks.isEmpty) return null;
+    return blocks.first.content.isEmpty ? null : blocks.first.content;
+  }
+
   // ==================== AI 对话 ====================
 
   /// 监听某条闪念的AI对话

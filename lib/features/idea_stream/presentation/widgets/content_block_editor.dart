@@ -1,4 +1,3 @@
-
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -16,23 +15,23 @@ class BlockEditResult {
   });
 }
 
-/// 内容块编辑器 —— 支持文本、图片、文件附件、录音
-/// 作为 BottomSheet 使用，返回 BlockEditResult
-class ContentBlockEditor extends StatefulWidget {
+/// 快捷编辑器 —— 首次创建闪念时的快速输入
+/// 作为 BottomSheet 使用，提供基础文本、图片、文件、录音功能
+class QuickBlockEditor extends StatefulWidget {
   final String? initialContent;
   final List<String>? initialMediaPaths;
 
-  const ContentBlockEditor({
+  const QuickBlockEditor({
     super.key,
     this.initialContent,
     this.initialMediaPaths,
   });
 
   @override
-  State<ContentBlockEditor> createState() => _ContentBlockEditorState();
+  State<QuickBlockEditor> createState() => _QuickBlockEditorState();
 }
 
-class _ContentBlockEditorState extends State<ContentBlockEditor> {
+class _QuickBlockEditorState extends State<QuickBlockEditor> {
   late TextEditingController _controller;
   final List<String> _mediaPaths = [];
   final ImagePicker _picker = ImagePicker();
@@ -169,11 +168,14 @@ class _ContentBlockEditorState extends State<ContentBlockEditor> {
               _buildToolButton(
                   Icons.image_outlined, '图片', isDark, () => _pickImages()),
               const SizedBox(width: 6),
-              _buildToolButton(Icons.attach_file_rounded, '文件', isDark,
-                  () => _pickFiles()),
+              _buildToolButton(
+                  Icons.attach_file_rounded, '文件', isDark, () => _pickFiles()),
               const SizedBox(width: 6),
-              _buildToolButton(_isRecording ? Icons.stop_rounded : Icons.mic_none_rounded,
-                  _isRecording ? '停止' : '录音', isDark, () => _toggleRecording()),
+              _buildToolButton(
+                  _isRecording ? Icons.stop_rounded : Icons.mic_none_rounded,
+                  _isRecording ? '停止' : '录音',
+                  isDark,
+                  () => _toggleRecording()),
               const Spacer(),
               // 确认按钮
               FilledButton(
@@ -184,9 +186,7 @@ class _ContentBlockEditorState extends State<ContentBlockEditor> {
                       content: _controller.text.trim(),
                       mediaPaths: List.from(_mediaPaths),
                       blockType: _mediaPaths.isNotEmpty
-                          ? (_mediaPaths.first
-                                      .toLowerCase()
-                                      .endsWith('.jpg') ||
+                          ? (_mediaPaths.first.toLowerCase().endsWith('.jpg') ||
                                   _mediaPaths.first
                                       .toLowerCase()
                                       .endsWith('.png')
@@ -229,7 +229,8 @@ class _ContentBlockEditorState extends State<ContentBlockEditor> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 16,
+            Icon(icon,
+                size: 16,
                 color: _isRecording && icon == Icons.stop_rounded
                     ? Colors.redAccent
                     : Colors.grey[500]),

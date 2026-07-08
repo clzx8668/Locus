@@ -22,6 +22,7 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
   String _searchQuery = "";
   bool _isGridView = false;
   List<String> _selectedTags = [];
+  final Map<int, String> _blockTextCache = {};
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +52,6 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                     letterSpacing: 1.2),
               ),
             ),
-            _buildTagFilterBar(isDark),
             Expanded(
               child: StreamBuilder<List<HubPayload>>(
                 stream: _repo.watchAll(),
@@ -63,8 +63,9 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                   }
 
                   var items = snapshot.data!.where((item) {
+                    final matchText = _blockTextCache[item.id] ?? item.rawText;
                     final matchesSearch = _searchQuery.isEmpty ||
-                        item.rawText
+                        matchText
                             .toLowerCase()
                             .contains(_searchQuery.toLowerCase()) ||
                         item.intentTag
@@ -76,6 +77,18 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                             .contains(tag.toLowerCase()));
                     return matchesSearch && matchesTags;
                   }).toList();
+
+                  // 异步加载空 rawText 记录的第一个内容块文本
+                  for (final item in items) {
+                    if (item.rawText.isEmpty &&
+                        !_blockTextCache.containsKey(item.id)) {
+                      _repo.getFirstBlockText(item.id).then((text) {
+                        if (text != null && mounted) {
+                          setState(() => _blockTextCache[item.id] = text!);
+                        }
+                      });
+                    }
+                  }
 
                   if (items.isEmpty) {
                     return _buildEmptyState(theme);
@@ -225,119 +238,17 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
     );
   }
 
-  Widget _buildTagFilterBar(bool isDark) {
-    return FutureBuilder<Map<String, int>>(
-      future: _repo.getTagStats(),
-      builder: (context, snapshot) {
-        final stats = snapshot.data ?? {};
-        if (stats.isEmpty) return const SizedBox.shrink();
-
-        final sortedTags = stats.entries.toList()
-          ..sort((a, b) => b.value.compareTo(a.value));
-
-        return Container(
-          height: 36,
-          margin: const EdgeInsets.only(bottom: 4),
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            itemCount: sortedTags.length + 1,
-            separatorBuilder: (_, __) => const SizedBox(width: 8),
-            itemBuilder: (context, index) {
-              if (index == 0) {
-                // "全部" 按钮
-                final isAll = _selectedTags.isEmpty;
-                return GestureDetector(
-                  onTap: () => setState(() => _selectedTags = []),
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: isAll
-                          ? const Color(0xFFFF6B6B)
-                          : (isDark
-                              ? const Color(0xFF262626)
-                              : const Color(0xFFF1F3F5)),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text('全部',
-                        style: TextStyle(
-                            color: isAll ? Colors.white : Colors.grey[500],
-                            fontSize: 12,
-                            fontWeight:
-                                isAll ? FontWeight.bold : FontWeight.normal)),
-                  ),
-                );
-              }
-
-              final tag = sortedTags[index - 1].key;
-              final count = sortedTags[index - 1].value;
-              final isSelected = _selectedTags.contains(tag);
-
-              return GestureDetector(
-                onTap: () {
-                  setState(() {
-                    if (isSelected) {
-                      _selectedTags.remove(tag);
-                    } else {
-                      _selectedTags = [tag];
-                    }
-                  });
-                },
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? const Color(0xFFFF6B6B).withValues(alpha: 0.12)
-                        : (isDark
-                            ? const Color(0xFF262626)
-                            : const Color(0xFFF1F3F5)),
-                    borderRadius: BorderRadius.circular(8),
-                    border: isSelected
-                        ? Border.all(
-                            color:
-                                const Color(0xFFFF6B6B).withValues(alpha: 0.3),
-                            width: 1)
-                        : null,
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        tag.startsWith('#') ? tag.substring(1) : tag,
-                        style: TextStyle(
-                            color: isSelected
-                                ? const Color(0xFFFF6B6B)
-                                : Colors.grey[400],
-                            fontSize: 12,
-                            fontWeight: isSelected
-                                ? FontWeight.w600
-                                : FontWeight.normal),
-                      ),
-                      const SizedBox(width: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 5, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? const Color(0xFFFF6B6B).withValues(alpha: 0.2)
-                              : Colors.grey[700]!,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text('$count',
-                            style: TextStyle(
-                                color: isSelected
-                                    ? const Color(0xFFFF6B6B)
-                                    : Colors.grey[500],
-                                fontSize: 10)),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
+  void _showTagFilterDialog(bool isDark) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return _TagFilterDialog(
+          repo: _repo,
+          selectedTags: _selectedTags,
+          isDark: isDark,
+          onSelectionChanged: (tags) {
+            setState(() => _selectedTags = tags);
+          },
         );
       },
     );
@@ -405,11 +316,19 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
             ),
           ),
           const SizedBox(width: 12),
-          Icon(Icons.auto_awesome_rounded,
-              color: Colors.orangeAccent[200], size: 18),
-          const SizedBox(width: 12),
-          Icon(Icons.assignment_turned_in_outlined,
-              color: Colors.grey[400], size: 18),
+          IconButton(
+            icon: Icon(
+              _selectedTags.isNotEmpty
+                  ? Icons.filter_alt_rounded
+                  : Icons.filter_alt_outlined,
+              color: _selectedTags.isNotEmpty
+                  ? const Color(0xFFFF6B6B)
+                  : Colors.grey[400],
+              size: 18,
+            ),
+            tooltip: '按标签筛选',
+            onPressed: () => _showTagFilterDialog(isDark),
+          ),
           const SizedBox(width: 2),
           IconButton(
             icon: Icon(
@@ -431,6 +350,7 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
     final hasTag = data.intentTag.isNotEmpty && data.intentTag != 'NOTE';
     final mediaPaths = _parseImagePaths(data.mediaPaths);
     final dateStr = _formatRelativeTime(data.createdAt);
+    final displayText = _blockTextCache[data.id] ?? data.rawText;
 
     final card = GestureDetector(
       onTap: () {
@@ -449,7 +369,7 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
           border: Border.all(
               color: theme.dividerColor.withValues(alpha: 0.08), width: 1),
         ),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -477,14 +397,14 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                   ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             if (mediaPaths.isNotEmpty && !_isGridView) ...[
               _buildImagePreview(mediaPaths),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
             ],
             Flexible(
               child: Text(
-                data.rawText.isEmpty ? "快速归档记录" : data.rawText,
+                displayText.isEmpty ? "快速归档记录" : displayText,
                 maxLines: _isGridView ? 5 : 6,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -505,7 +425,7 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
               builder: (ctx) => AlertDialog(
                 title: const Text('确认删除'),
                 content: Text(
-                    '确定要删除"${data.rawText.length > 30 ? '${data.rawText.substring(0, 30)}...' : data.rawText}"吗？'),
+                    '确定要删除"${displayText.length > 30 ? '${displayText.substring(0, 30)}...' : displayText}"吗？'),
                 actions: [
                   TextButton(
                       onPressed: () => Navigator.pop(ctx, false),
@@ -783,6 +703,124 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// 标签筛选弹窗 —— 显示所有标签及使用次数，支持多选
+class _TagFilterDialog extends StatefulWidget {
+  final IdeaRepository repo;
+  final List<String> selectedTags;
+  final bool isDark;
+  final ValueChanged<List<String>> onSelectionChanged;
+
+  const _TagFilterDialog({
+    required this.repo,
+    required this.selectedTags,
+    required this.isDark,
+    required this.onSelectionChanged,
+  });
+
+  @override
+  State<_TagFilterDialog> createState() => _TagFilterDialogState();
+}
+
+class _TagFilterDialogState extends State<_TagFilterDialog> {
+  late List<String> _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = List.from(widget.selectedTags);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, int>>(
+      future: widget.repo.getTagStats(),
+      builder: (context, snapshot) {
+        final stats = snapshot.data ?? {};
+        final sortedTags = stats.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+
+        return AlertDialog(
+          backgroundColor:
+              widget.isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          title: Row(
+            children: [
+              const Text('按标签筛选', style: TextStyle(fontSize: 16)),
+              const Spacer(),
+              if (_selected.isNotEmpty)
+                TextButton(
+                  onPressed: () {
+                    final result = <String>[];
+                    widget.onSelectionChanged(result);
+                    Navigator.pop(context);
+                  },
+                  child: const Text('清除',
+                      style: TextStyle(fontSize: 13, color: Color(0xFFFF6B6B))),
+                ),
+            ],
+          ),
+          content: SizedBox(
+            width: 280,
+            child: sortedTags.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                        child:
+                            Text('暂无标签', style: TextStyle(color: Colors.grey))),
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: sortedTags.map((entry) {
+                      final tag = entry.key;
+                      final count = entry.value;
+                      final displayTag =
+                          tag.startsWith('#') ? tag.substring(1) : tag;
+                      final isChecked = _selected.contains(tag);
+
+                      return CheckboxListTile(
+                        value: isChecked,
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(displayTag,
+                            style: const TextStyle(fontSize: 14)),
+                        subtitle: Text('$count 条记录',
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.grey[600])),
+                        activeColor: const Color(0xFFFF6B6B),
+                        onChanged: (val) {
+                          setState(() {
+                            if (val == true) {
+                              _selected.add(tag);
+                            } else {
+                              _selected.remove(tag);
+                            }
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消', style: TextStyle(fontSize: 13)),
+            ),
+            FilledButton(
+              onPressed: () {
+                widget.onSelectionChanged(List.from(_selected));
+                Navigator.pop(context);
+              },
+              style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF6B6B)),
+              child: const Text('确定',
+                  style: TextStyle(fontSize: 13, color: Colors.white)),
+            ),
+          ],
+        );
+      },
     );
   }
 }
