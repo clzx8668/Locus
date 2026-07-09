@@ -350,7 +350,8 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
     final hasTag = data.intentTag.isNotEmpty && data.intentTag != 'NOTE';
     final mediaPaths = _parseImagePaths(data.mediaPaths);
     final dateStr = _formatRelativeTime(data.createdAt);
-    final displayText = _blockTextCache[data.id] ?? data.rawText;
+    final displayText =
+        _stripMarkdownForPreview(_blockTextCache[data.id] ?? data.rawText);
 
     final card = GestureDetector(
       onTap: () {
@@ -704,6 +705,49 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
         ),
       ),
     );
+  }
+
+  /// 剥离 Markdown 格式标识字符，转为纯文本预览
+  /// - 任务复选框 [ ]/[x] → ☐/☑
+  /// - 标题 #、粗体 **、斜体 _、代码 `、删除线 ~~ → 去除标识符
+  /// - 引用 >、列表 -/1. → 去除前缀
+  /// - 水平分割线 --- → 移除整行
+  String _stripMarkdownForPreview(String text) {
+    // 1. 任务复选框 → 视觉状态符号（在行级处理之前先做）
+    text = text.replaceAll('[x]', '☑');
+    text = text.replaceAll('[X]', '☑');
+    text = text.replaceAll('[ ]', '☐');
+
+    final lines = text.split('\n');
+    final result = <String>[];
+
+    for (final line in lines) {
+      var trimmed = line.trim();
+
+      // 跳过水平分割线
+      if (RegExp(r'^[-*]{3,}$').hasMatch(trimmed)) continue;
+
+      // 去除块级前缀标识
+      trimmed = trimmed
+          .replaceFirst(RegExp(r'^#{1,3}\s+'), '') // 标题 # / ## / ###
+          .replaceFirst(RegExp(r'^>\s?'), '') // 引用 >
+          .replaceFirst(RegExp(r'^[-•]\s+'), '') // 无序列表 - / •
+          .replaceFirst(RegExp(r'^\d+\.\s+'), ''); // 有序列表 1. / 2.
+
+      // 去除行内格式标识字符（顺序：先处理成对标记）
+      trimmed = trimmed
+          .replaceAll('**', '') // 粗体
+          .replaceAll('~~', '') // 删除线
+          .replaceAll('`', '') // 行内代码
+          .replaceAllMapped(RegExp(r'_(.+?)_'), (m) => m.group(1) ?? ''); // 斜体
+
+      result.add(trimmed);
+    }
+
+    return result
+        .join('\n')
+        .replaceAll(RegExp(r'\n{3,}'), '\n\n') // 合并连续空行
+        .trim();
   }
 }
 

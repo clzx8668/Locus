@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'widgets/quick_input_bottom_sheet.dart';
+import '../../../core/theme/design_system.dart';
 import '../../idea_stream/presentation/pages/idea_stream_page.dart';
 import '../../calendar/presentation/pages/calendar_page.dart';
 import '../../ai_hub/presentation/pages/ai_hub_page.dart';
@@ -16,7 +17,8 @@ class _LocusHomePageState extends State<LocusHomePage> {
   int _currentIndex = 0;
 
   List<Widget> get _pages => [
-        IdeaStreamPage(onNavigate: (index) => setState(() => _currentIndex = index)),
+        IdeaStreamPage(
+            onNavigate: (index) => setState(() => _currentIndex = index)),
         const CalendarPage(),
         const AiHubPage(),
         const SettingsPage(),
@@ -26,6 +28,7 @@ class _LocusHomePageState extends State<LocusHomePage> {
   bool _isCollapsed = false;
   double? _dragX;
   bool _isDragging = false;
+  bool _sidebarExpanded = true;
 
   final double _buttonSize = 56.0;
   final double _collapsedVisibleWidth = 14.0;
@@ -35,17 +38,18 @@ class _LocusHomePageState extends State<LocusHomePage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final colors = theme.extension<AppColorsExtension>()!;
 
     final screenWidth = MediaQuery.of(context).size.width;
     final bool isSmallScreen = screenWidth < 600;
     final bool isMediumScreen = screenWidth >= 600 && screenWidth < 960;
     final bool isLargeScreen = screenWidth >= 960;
 
-    double sidebarWidth = 0.0;
-    if (isLargeScreen) sidebarWidth = 220.0;
-    if (isMediumScreen) sidebarWidth = 70.0;
+    final double effectiveSidebarWidth = !isSmallScreen
+        ? (isLargeScreen && _sidebarExpanded ? 220.0 : 70.0)
+        : 0.0;
 
-    final double contentAreaWidth = screenWidth - sidebarWidth;
+    final double contentAreaWidth = screenWidth - effectiveSidebarWidth;
 
     double leftPosition;
     if (_isDragging && _dragX != null) {
@@ -152,11 +156,15 @@ class _LocusHomePageState extends State<LocusHomePage> {
     );
 
     if (!isSmallScreen) {
+      final bool isSidebarCollapsed = isMediumScreen || !_sidebarExpanded;
       return Scaffold(
-        backgroundColor: isDark ? const Color(0xFF121212) : Colors.grey[100],
+        backgroundColor: theme.scaffoldBackgroundColor,
         body: Row(
           children: [
-            _buildSidebarContent(context, sidebarWidth, isDark, isMediumScreen),
+            if (isLargeScreen || isMediumScreen)
+              _buildSidebarContent(
+                  context, effectiveSidebarWidth, isSidebarCollapsed,
+                  isLargeScreen: isLargeScreen),
             Expanded(child: mainContentStack),
           ],
         ),
@@ -183,7 +191,8 @@ class _LocusHomePageState extends State<LocusHomePage> {
             child: NavigationBar(
               selectedIndex: _currentIndex,
               elevation: 0,
-              backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+              backgroundColor:
+                  isDark ? const Color(0xFF1E1E1E) : colors.surface1,
               surfaceTintColor: Colors.transparent,
               height: 48,
               labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
@@ -217,10 +226,10 @@ class _LocusHomePageState extends State<LocusHomePage> {
     }
   }
 
-  Widget _buildSidebarContent(
-      BuildContext context, double width, bool isDark, bool isMedium) {
-    final sidebarBgColor =
-        isDark ? const Color(0xFF1A1A1A) : const Color(0xFF212121);
+  Widget _buildSidebarContent(BuildContext context, double width, bool isMedium,
+      {required bool isLargeScreen}) {
+    final theme = Theme.of(context);
+    final colors = theme.extension<AppColorsExtension>()!;
 
     final menuItems = [
       {'label': '首页', 'icon': Icons.flash_on},
@@ -232,40 +241,115 @@ class _LocusHomePageState extends State<LocusHomePage> {
     return Container(
       width: width,
       height: double.infinity,
-      color: sidebarBgColor,
-      padding:
-          EdgeInsets.symmetric(vertical: 24, horizontal: isMedium ? 8 : 16),
+      color: colors.surface1,
+      padding: EdgeInsets.symmetric(
+          vertical: AppDimensions.spaceXL,
+          horizontal: isMedium ? AppDimensions.spaceSM : AppDimensions.spaceLG),
       child: Column(
         crossAxisAlignment:
             isMedium ? CrossAxisAlignment.center : CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: isMedium
-                ? const EdgeInsets.only(bottom: 32, top: 8)
-                : const EdgeInsets.only(left: 12, bottom: 32, top: 8),
-            child: Container(
-              width: isMedium ? 38 : 46,
-              height: isMedium ? 38 : 46,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFF6B6B),
-                borderRadius: BorderRadius.circular(isMedium ? 10 : 12),
+          if (isLargeScreen && !isMedium)
+            // 展开状态：Logo + 收起按钮在同一行
+            Padding(
+              padding: const EdgeInsets.only(
+                  bottom: AppDimensions.spaceXL, top: AppDimensions.spaceSM),
+              child: Row(
+                children: [
+                  const SizedBox(width: AppDimensions.spaceMD),
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF6B6B),
+                      borderRadius:
+                          BorderRadius.circular(AppDimensions.radiusMD),
+                    ),
+                    child: const Center(
+                      child: Text('L',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900)),
+                    ),
+                  ),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: () =>
+                        setState(() => _sidebarExpanded = !_sidebarExpanded),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppDimensions.spaceSM),
+                      child: Icon(Icons.chevron_left_rounded,
+                          color: colors.textSecondary, size: 18),
+                    ),
+                  ),
+                ],
               ),
-              child: const Center(
-                child: Text(
-                  'L',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900),
+            )
+          else if (isLargeScreen)
+            // 收起状态：Logo + 展开按钮纵向排列
+            Padding(
+              padding: const EdgeInsets.only(
+                  bottom: AppDimensions.spaceXL, top: AppDimensions.spaceSM),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF6B6B),
+                      borderRadius:
+                          BorderRadius.circular(AppDimensions.radiusSM),
+                    ),
+                    child: const Center(
+                      child: Text('L',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900)),
+                    ),
+                  ),
+                  const SizedBox(height: AppDimensions.spaceXS + 2),
+                  GestureDetector(
+                    onTap: () =>
+                        setState(() => _sidebarExpanded = !_sidebarExpanded),
+                    child: Padding(
+                      padding: const EdgeInsets.all(AppDimensions.spaceXS),
+                      child: Icon(Icons.chevron_right_rounded,
+                          color: colors.textSecondary, size: 16),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            // 中屏：仅 Logo 居中
+            Padding(
+              padding: const EdgeInsets.only(
+                  bottom: AppDimensions.spaceXL, top: AppDimensions.spaceSM),
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF6B6B),
+                  borderRadius: BorderRadius.circular(AppDimensions.radiusSM),
+                ),
+                child: const Center(
+                  child: Text('L',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900)),
                 ),
               ),
             ),
-          ),
           Expanded(
             child: ListView.separated(
               physics: const NeverScrollableScrollPhysics(),
               itemCount: menuItems.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 10),
+              separatorBuilder: (context, index) =>
+                  const SizedBox(height: AppDimensions.spaceSM + 2),
               itemBuilder: (context, index) {
                 final bool isSelected = _currentIndex == index;
                 final item = menuItems[index];
@@ -276,12 +360,14 @@ class _LocusHomePageState extends State<LocusHomePage> {
                     duration: const Duration(milliseconds: 200),
                     curve: Curves.easeInOut,
                     padding: EdgeInsets.symmetric(
-                        horizontal: isMedium ? 0 : 16, vertical: 12),
+                        horizontal: isMedium ? 0 : AppDimensions.spaceLG,
+                        vertical: AppDimensions.spaceMD),
                     decoration: BoxDecoration(
                       color: isSelected
                           ? const Color(0xFFFF6B6B).withValues(alpha: 0.15)
                           : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius:
+                          BorderRadius.circular(AppDimensions.radiusMD),
                     ),
                     child: isMedium
                         ? Center(
@@ -289,7 +375,7 @@ class _LocusHomePageState extends State<LocusHomePage> {
                               item['icon'] as IconData,
                               color: isSelected
                                   ? const Color(0xFFFF6B6B)
-                                  : Colors.grey[400],
+                                  : colors.textSecondary,
                               size: 22,
                             ),
                           )
@@ -299,19 +385,18 @@ class _LocusHomePageState extends State<LocusHomePage> {
                                 item['icon'] as IconData,
                                 color: isSelected
                                     ? const Color(0xFFFF6B6B)
-                                    : Colors.grey[400],
+                                    : colors.textSecondary,
                                 size: 22,
                               ),
-                              const SizedBox(width: 16),
+                              const SizedBox(width: AppDimensions.spaceLG),
                               Text(
                                 item['label'] as String,
-                                style: TextStyle(
+                                style: AppTypography.body2.copyWith(
                                   color: isSelected
                                       ? const Color(0xFFFF6B6B)
-                                      : Colors.grey[300],
-                                  fontSize: 14,
+                                      : colors.textPrimary,
                                   fontWeight: isSelected
-                                      ? FontWeight.bold
+                                      ? FontWeight.w600
                                       : FontWeight.normal,
                                 ),
                               ),

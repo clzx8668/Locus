@@ -29,6 +29,7 @@ class _FullBlockEditorState extends State<FullBlockEditor> {
   // 格式化工具状态
   bool _boldActive = false;
   String _headingLevel = '';
+  bool _isPreview = false;
 
   // 时间戳
   late String _createdTime;
@@ -207,38 +208,40 @@ class _FullBlockEditorState extends State<FullBlockEditor> {
           // 顶部时间戳 & 信息条
           _buildInfoBar(isDark),
 
-          // 格式化工具栏
-          _buildFormatToolbar(isDark),
+          // 格式化工具栏（仅编辑模式）
+          if (!_isPreview) _buildFormatToolbar(isDark),
 
-          // 核心编辑区
+          // 核心区域：编辑 / 预览切换
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: TextField(
-                controller: _controller,
-                focusNode: _focusNode,
-                maxLines: null,
-                expands: true,
-                textAlignVertical: TextAlignVertical.top,
-                style: TextStyle(
-                  fontSize: 16,
-                  height: 1.7,
-                  color: isDark ? Colors.white : const Color(0xFF1A1A1A),
-                ),
-                decoration: const InputDecoration(
-                  hintText: '开始输入...',
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.only(top: 8, bottom: 80),
-                ),
-              ),
-            ),
+            child: _isPreview
+                ? _buildMarkdownPreview(isDark)
+                : Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: TextField(
+                      controller: _controller,
+                      focusNode: _focusNode,
+                      maxLines: null,
+                      expands: true,
+                      textAlignVertical: TextAlignVertical.top,
+                      style: TextStyle(
+                        fontSize: 16,
+                        height: 1.7,
+                        color: isDark ? Colors.white : const Color(0xFF1A1A1A),
+                      ),
+                      decoration: const InputDecoration(
+                        hintText: '开始输入...',
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.only(top: 8, bottom: 80),
+                      ),
+                    ),
+                  ),
           ),
 
           // 底部媒体预览条
-          if (_mediaPaths.isNotEmpty) _buildMediaBar(isDark),
+          if (_mediaPaths.isNotEmpty && !_isPreview) _buildMediaBar(isDark),
 
-          // 底部工具栏
-          _buildBottomToolbar(isDark),
+          // 底部工具栏（仅编辑模式）
+          if (!_isPreview) _buildBottomToolbar(isDark),
         ],
       ),
     );
@@ -254,7 +257,7 @@ class _FullBlockEditorState extends State<FullBlockEditor> {
             style: TextStyle(fontSize: 15, color: Colors.grey)),
       ),
       title: Text(
-        widget.initialContent != null ? '编辑内容块' : '追加内容',
+        _isPreview ? '预览' : (widget.initialContent != null ? '编辑内容块' : '追加内容'),
         style: TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w600,
@@ -262,6 +265,24 @@ class _FullBlockEditorState extends State<FullBlockEditor> {
       ),
       centerTitle: true,
       actions: [
+        // 编辑 / 预览切换
+        IconButton(
+          icon: Icon(
+            _isPreview ? Icons.edit_outlined : Icons.visibility_outlined,
+            size: 18,
+          ),
+          color: _isPreview ? const Color(0xFFFF6B6B) : Colors.grey[400],
+          tooltip: _isPreview ? '切换到编辑' : '预览',
+          onPressed: () => setState(() => _isPreview = !_isPreview),
+        ),
+        // 分享
+        IconButton(
+          icon: const Icon(Icons.ios_share_rounded, size: 18),
+          color: Colors.grey[400],
+          tooltip: '分享',
+          onPressed: () => _showShareOptions(),
+        ),
+        const SizedBox(width: 2),
         Padding(
           padding: const EdgeInsets.only(right: 8),
           child: FilledButton(
@@ -281,6 +302,321 @@ class _FullBlockEditorState extends State<FullBlockEditor> {
         ),
       ],
     );
+  }
+
+  void _showShareOptions() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return Container(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[400],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                Text('分享内容',
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white : Colors.black)),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    _shareChip(Icons.copy_rounded, '复制全文', isDark, () {
+                      Navigator.pop(context);
+                      // TODO: 实现复制到剪贴板
+                    }),
+                    _shareChip(Icons.image_outlined, '导出图片', isDark, () {
+                      Navigator.pop(context);
+                      // TODO: 实现内容截图导出
+                    }),
+                    _shareChip(
+                        Icons.description_outlined, '导出 Markdown', isDark, () {
+                      Navigator.pop(context);
+                      // TODO: 实现MD文件导出
+                    }),
+                    _shareChip(Icons.text_snippet_outlined, '纯文本', isDark, () {
+                      Navigator.pop(context);
+                      // TODO: 实现纯文本导出
+                    }),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _shareChip(
+      IconData icon, String label, bool isDark, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFF5F5F5),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, size: 22, color: Colors.grey[400]),
+          ),
+          const SizedBox(height: 6),
+          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMarkdownPreview(bool isDark) {
+    final lines = _controller.text.split('\n');
+    final spans = <Widget>[];
+
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+
+      // 水平分割线
+      if (line.trimRight() == '---' || line.trimRight() == '***') {
+        spans.add(Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Divider(
+              color:
+                  isDark ? const Color(0xFF333333) : const Color(0xFFE0E0E0)),
+        ));
+        continue;
+      }
+
+      // 标题
+      if (line.startsWith('# ')) {
+        spans.add(Padding(
+          padding: const EdgeInsets.only(top: 16, bottom: 6),
+          child: Text(
+            line.substring(2),
+            style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black,
+                height: 1.3),
+          ),
+        ));
+        continue;
+      }
+      if (line.startsWith('## ')) {
+        spans.add(Padding(
+          padding: const EdgeInsets.only(top: 14, bottom: 4),
+          child: Text(
+            line.substring(3),
+            style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white : Colors.black,
+                height: 1.3),
+          ),
+        ));
+        continue;
+      }
+      if (line.startsWith('### ')) {
+        spans.add(Padding(
+          padding: const EdgeInsets.only(top: 12, bottom: 4),
+          child: Text(
+            line.substring(4),
+            style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white : const Color(0xFF333333),
+                height: 1.3),
+          ),
+        ));
+        continue;
+      }
+
+      // 引用
+      if (line.startsWith('> ')) {
+        spans.add(
+          Container(
+            margin: const EdgeInsets.only(top: 6, bottom: 6),
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            decoration: BoxDecoration(
+              border: Border(
+                left: BorderSide(
+                    color: const Color(0xFFFF6B6B).withValues(alpha: 0.4),
+                    width: 3),
+              ),
+            ),
+            child: _parseInlineMarkdown(
+                line.substring(2),
+                TextStyle(
+                    fontSize: 14,
+                    height: 1.55,
+                    color: isDark ? Colors.grey[400] : Colors.grey[700],
+                    fontStyle: FontStyle.italic),
+                isDark),
+          ),
+        );
+        continue;
+      }
+
+      // 无序列表
+      if (line.trimLeft().startsWith('- ')) {
+        final indent = line.length - line.trimLeft().length;
+        final content = line.trimLeft().substring(2);
+        spans.add(Padding(
+          padding: EdgeInsets.only(left: indent + 16.0, top: 2, bottom: 2),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('• ',
+                  style: TextStyle(fontSize: 14, color: Color(0xFFFF6B6B))),
+              Expanded(
+                child: _parseInlineMarkdown(
+                    content,
+                    TextStyle(
+                        fontSize: 14,
+                        height: 1.55,
+                        color: isDark
+                            ? Colors.grey[300]
+                            : const Color(0xFF444444)),
+                    isDark),
+              ),
+            ],
+          ),
+        ));
+        continue;
+      }
+
+      // 有序列表
+      final olMatch = RegExp(r'^\d+\.\s').firstMatch(line);
+      if (olMatch != null) {
+        final content = line.substring(olMatch.end);
+        spans.add(Padding(
+          padding: const EdgeInsets.only(left: 16, top: 2, bottom: 2),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('${line.substring(0, olMatch.end - 2)}. ',
+                  style: TextStyle(
+                      fontSize: 14,
+                      color: const Color(0xFFFF6B6B).withValues(alpha: 0.7))),
+              Expanded(
+                child: _parseInlineMarkdown(
+                    content,
+                    TextStyle(
+                        fontSize: 14,
+                        height: 1.55,
+                        color: isDark
+                            ? Colors.grey[300]
+                            : const Color(0xFF444444)),
+                    isDark),
+              ),
+            ],
+          ),
+        ));
+        continue;
+      }
+
+      // 空行
+      if (line.trim().isEmpty) {
+        spans.add(const SizedBox(height: 8));
+        continue;
+      }
+
+      // 普通段落
+      spans.add(Padding(
+        padding: const EdgeInsets.only(top: 4, bottom: 4),
+        child: _parseInlineMarkdown(
+            line,
+            TextStyle(
+                fontSize: 14,
+                height: 1.7,
+                color: isDark ? Colors.grey[200] : const Color(0xFF333333)),
+            isDark),
+      ));
+    }
+
+    if (spans.isEmpty) {
+      return Center(
+        child: Text('暂无内容',
+            style: TextStyle(fontSize: 14, color: Colors.grey[500])),
+      );
+    }
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child:
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: spans),
+    );
+  }
+
+  /// 解析行内 Markdown：**粗体**、_斜体_、`代码`
+  Widget _parseInlineMarkdown(String text, TextStyle baseStyle, bool isDark) {
+    final segments = <InlineSpan>[];
+    // 匹配 **bold**、_italic_、`code`
+    final regex = RegExp(r'(\*\*(.+?)\*\*|_(.+?)_|`(.+?)`)');
+    int lastEnd = 0;
+
+    for (final match in regex.allMatches(text)) {
+      // 普通文本
+      if (match.start > lastEnd) {
+        segments.add(TextSpan(
+            text: text.substring(lastEnd, match.start), style: baseStyle));
+      }
+
+      if (match.group(2) != null) {
+        // **粗体**
+        segments.add(TextSpan(
+            text: match.group(2),
+            style: baseStyle.copyWith(fontWeight: FontWeight.bold)));
+      } else if (match.group(3) != null) {
+        // _斜体_
+        segments.add(TextSpan(
+            text: match.group(3),
+            style: baseStyle.copyWith(fontStyle: FontStyle.italic)));
+      } else if (match.group(4) != null) {
+        // `代码`
+        segments.add(TextSpan(
+          text: match.group(4),
+          style: baseStyle.copyWith(
+            fontFamily: 'monospace',
+            fontSize: (baseStyle.fontSize ?? 14) - 1,
+            backgroundColor:
+                isDark ? const Color(0xFF2A2A2A) : const Color(0xFFF0F0F0),
+            color: const Color(0xFFFF6B6B),
+          ),
+        ));
+      }
+
+      lastEnd = match.end;
+    }
+
+    // 剩余文本
+    if (lastEnd < text.length) {
+      segments.add(TextSpan(text: text.substring(lastEnd), style: baseStyle));
+    }
+
+    return RichText(text: TextSpan(children: segments));
   }
 
   Widget _buildInfoBar(bool isDark) {
