@@ -144,7 +144,16 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(hintText: '输入标题'),
+          decoration: InputDecoration(
+            hintText: '输入标题',
+            filled: true,
+            fillColor:
+                isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
           maxLength: 100,
           onSubmitted: (val) {
             final newTitle = val.trim();
@@ -287,9 +296,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     final isVoice = block.sourceType == 'voice';
     final dateStr = _formatBlockTime(block.createdAt);
 
-    return GestureDetector(
-      onTap: () => _openBlockEditorForEdit(block),
-      child: Container(
+    return Container(
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
@@ -315,6 +322,11 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                 Text(dateStr,
                     style: TextStyle(fontSize: 11, color: Colors.grey[600])),
                 const Spacer(),
+                _BlockIconButton(
+                  icon: Icons.edit_outlined,
+                  label: '编辑',
+                  onTap: () => _openBlockEditorForEdit(block),
+                ),
                 if (isVoice)
                   _BlockIconButton(
                     icon: Icons.play_arrow_rounded,
@@ -342,10 +354,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             ),
             if (block.content.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Text(
-                block.content,
-                style: const TextStyle(fontSize: 14, height: 1.55),
-              ),
+              _renderMarkdownPreview(block.content, isDark),
             ],
             // 媒体预览
             if (mediaPaths.isNotEmpty) ...[
@@ -353,24 +362,28 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
               Wrap(
                 spacing: 6,
                 runSpacing: 6,
-                children: mediaPaths.take(6).map((path) {
-                  return ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: SizedBox(
-                      width: (MediaQuery.of(context).size.width - 84) / 3,
-                      height: 90,
-                      child: path.toLowerCase().endsWith('.jpg') ||
-                              path.toLowerCase().endsWith('.png') ||
-                              path.toLowerCase().endsWith('.jpeg')
-                          ? Image.file(File(path), fit: BoxFit.cover)
-                          : Container(
-                              color: isDark
-                                  ? const Color(0xFF2A2A2A)
-                                  : const Color(0xFFF0F0F0),
-                              child: const Center(
-                                  child: Icon(Icons.insert_drive_file,
-                                      color: Colors.grey, size: 24)),
-                            ),
+                children: mediaPaths.map((path) {
+                  final isImage = path.toLowerCase().endsWith('.jpg') ||
+                      path.toLowerCase().endsWith('.png') ||
+                      path.toLowerCase().endsWith('.jpeg');
+                  return GestureDetector(
+                    onTap: isImage ? () => _showFullScreenImage(path) : null,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: SizedBox(
+                        width: (MediaQuery.of(context).size.width - 84) / 3,
+                        height: 90,
+                        child: isImage
+                            ? Image.file(File(path), fit: BoxFit.cover)
+                            : Container(
+                                color: isDark
+                                    ? const Color(0xFF2A2A2A)
+                                    : const Color(0xFFF0F0F0),
+                                child: const Center(
+                                    child: Icon(Icons.insert_drive_file,
+                                        color: Colors.grey, size: 24)),
+                              ),
+                      ),
                     ),
                   );
                 }).toList(),
@@ -379,9 +392,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             // ===== 每块独立标签区域 =====
             _buildBlockTagSection(block, theme, isDark),
           ],
-        ),
-      ),
-    );
+        ));
   }
 
   void _openBlockEditorForEdit(ContentBlock block) async {
@@ -471,7 +482,17 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration: const InputDecoration(hintText: '输入标签名'),
+          decoration: InputDecoration(
+            hintText: '输入标签名',
+            filled: true,
+            fillColor: Theme.of(context).brightness == Brightness.dark
+                ? const Color(0xFF262626)
+                : const Color(0xFFF1F3F5),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
           onSubmitted: (val) {
             final tag = val.trim();
             if (tag.isNotEmpty) {
@@ -558,7 +579,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -606,37 +627,48 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
           ],
         ),
       ),
+      bottomNavigationBar: _buildAiInputBar(isDark),
     );
   }
 
   // ==================== 追加按钮 ====================
 
   Widget _buildAddBlockButton(bool isDark, ThemeData theme) {
-    return GestureDetector(
-      onTap: () => _openBlockEditor(),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF8F8F8),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: const Color(0xFFFF6B6B).withValues(alpha: 0.15),
-            width: 1,
-            strokeAlign: BorderSide.strokeAlignInside,
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: IntrinsicWidth(
+        child: GestureDetector(
+          onTap: _openBlockEditor,
+          child: Container(
+            margin: const EdgeInsets.only(top: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? Colors.grey[700]! : Colors.grey[300]!,
+                width: 1,
+                strokeAlign: BorderSide.strokeAlignInside,
+              ),
+              color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFF8F9FA),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.add_rounded,
+                    size: 16,
+                    color: isDark ? Colors.grey[400] : Colors.grey[600]),
+                const SizedBox(width: 6),
+                Text(
+                  '追加内容',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: isDark ? Colors.grey[400] : Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.add_rounded, size: 18, color: Color(0xFFFF6B6B)),
-            const SizedBox(width: 6),
-            const Text('追加内容',
-                style: TextStyle(
-                    color: Color(0xFFFF6B6B),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14)),
-          ],
         ),
       ),
     );
@@ -646,7 +678,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
 
   Widget _buildAiSection(ThemeData theme, bool isDark) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // 区域标题
         Row(
@@ -686,42 +718,57 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                     (conv) => _buildConversationBubble(conv, theme, isDark)),
 
                 // 加载指示器
-                if (_isAiWorking &&
-                    conversations.isNotEmpty &&
-                    conversations.last.role == 'user')
+                if (_isAiWorking)
                   Padding(
-                    padding: const EdgeInsets.only(left: 16, top: 8, bottom: 8),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? const Color(0xFF1E1E1E)
-                            : const Color(0xFFF5F5F5),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Color(0xFFFF6B6B),
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Row(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: CircleAvatar(
+                            radius: 14,
+                            backgroundColor:
+                                const Color(0xFFFF6B6B).withValues(alpha: 0.15),
+                            child: const Icon(Icons.auto_awesome_rounded,
+                                size: 14, color: Color(0xFFFF6B6B)),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? const Color(0xFF2A2A2A)
+                                : const Color(0xFFF0F0F0),
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(16),
+                              topRight: Radius.circular(16),
+                              bottomRight: Radius.circular(16),
+                              bottomLeft: Radius.circular(4),
                             ),
                           ),
-                          SizedBox(width: 8),
-                          Text('AI 正在思考...',
-                              style:
-                                  TextStyle(fontSize: 12, color: Colors.grey)),
-                        ],
-                      ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: const Color(0xFFFF6B6B)
+                                      .withValues(alpha: 0.6),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text('思考中...',
+                                  style: TextStyle(
+                                      fontSize: 12, color: Colors.grey[500])),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-
-                // 输入框
-                const SizedBox(height: 10),
-                _buildAiInput(isDark),
               ],
             );
           },
@@ -733,42 +780,77 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   Widget _buildConversationBubble(
       AiConversation conv, ThemeData theme, bool isDark) {
     final isUser = conv.role == 'user';
+    const bubbleMaxWidth = 0.75;
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.only(top: 6, bottom: 6),
+      child: Row(
+        mainAxisAlignment:
+            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          // 角色标签
-          Text(
-            isUser ? '你' : 'AI',
-            style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+          // 用户消息：头像在右；AI 消息：头像在左
+          if (!isUser)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: CircleAvatar(
+                radius: 14,
+                backgroundColor:
+                    const Color(0xFFFF6B6B).withValues(alpha: 0.15),
+                child: const Icon(Icons.auto_awesome_rounded,
+                    size: 14, color: Color(0xFFFF6B6B)),
+              ),
+            ),
+          Flexible(
+            child: Container(
+              constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * bubbleMaxWidth),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
                 color: isUser
                     ? const Color(0xFFFF6B6B)
-                    : Colors.amber.withValues(alpha: 0.8)),
-          ),
-          const SizedBox(height: 4),
-          // 内容
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: isUser
-                  ? const Color(0xFFFF6B6B).withValues(alpha: 0.06)
-                  : (isDark
-                      ? const Color(0xFF1E1E1E)
-                      : const Color(0xFFF5F5F5)),
-              borderRadius: BorderRadius.circular(12),
-              border: isUser
-                  ? Border.all(
-                      color: const Color(0xFFFF6B6B).withValues(alpha: 0.1),
-                      width: 1)
-                  : null,
+                    : isDark
+                        ? const Color(0xFF2A2A2A)
+                        : const Color(0xFFF0F0F0),
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(16),
+                  topRight: const Radius.circular(16),
+                  bottomLeft: isUser
+                      ? const Radius.circular(16)
+                      : const Radius.circular(4),
+                  bottomRight: isUser
+                      ? const Radius.circular(4)
+                      : const Radius.circular(16),
+                ),
+              ),
+              child: Text(
+                conv.content,
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.5,
+                  color: isUser
+                      ? Colors.white
+                      : isDark
+                          ? Colors.grey[200]
+                          : const Color(0xFF333333),
+                ),
+              ),
             ),
-            child: Text(conv.content,
-                style: const TextStyle(fontSize: 13, height: 1.5)),
           ),
+          if (isUser)
+            Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: CircleAvatar(
+                radius: 14,
+                backgroundColor:
+                    const Color(0xFFFF6B6B).withValues(alpha: 0.15),
+                child: const Text('我',
+                    style: TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFFFF6B6B),
+                        fontWeight: FontWeight.w600)),
+              ),
+            ),
         ],
       ),
     );
@@ -777,8 +859,8 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   Widget _buildAiInput(bool isDark) {
     return Container(
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFFBFBFB),
-        borderRadius: BorderRadius.circular(14),
+        color: isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Theme.of(context).dividerColor, width: 1),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -812,6 +894,124 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
           ),
         ],
       ),
+    );
+  }
+
+  static const List<String> _aiPresets = [
+    '总结全文要点',
+    '翻译为英文',
+    '润色优化表达',
+    '提取关键信息',
+    '生成内容大纲',
+  ];
+
+  Widget _buildAiInputBar(bool isDark) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+        border: Border(
+          top: BorderSide(
+              color: isDark ? const Color(0xFF333333) : const Color(0xFFE0E0E0),
+              width: 0.5),
+        ),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              // 预设按钮
+              _buildPresetButton(isDark),
+              const SizedBox(width: 8),
+              // 输入框
+              Expanded(
+                child: Container(
+                  constraints: const BoxConstraints(maxHeight: 120),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF262626)
+                        : const Color(0xFFF1F3F5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: TextField(
+                    controller: _aiInputController,
+                    maxLines: 4,
+                    minLines: 1,
+                    textInputAction: TextInputAction.newline,
+                    style: TextStyle(
+                        fontSize: 14,
+                        height: 1.4,
+                        color: isDark ? Colors.white : Colors.black87),
+                    decoration: InputDecoration(
+                      hintText: '与 AI 交流...',
+                      hintStyle: TextStyle(
+                          fontSize: 14,
+                          color: isDark ? Colors.grey[600] : Colors.grey[500]),
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // 发送按钮
+              GestureDetector(
+                onTap: _sendAiMessage,
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: _aiInputController.text.trim().isEmpty
+                        ? Colors.grey[400]
+                        : const Color(0xFFFF6B6B),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.send_rounded,
+                      size: 16, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPresetButton(bool isDark) {
+    return PopupMenuButton<String>(
+      offset: const Offset(0, -300),
+      color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Icon(Icons.tag_rounded,
+            size: 18, color: isDark ? Colors.grey[400] : Colors.grey[600]),
+      ),
+      onSelected: (value) {
+        _aiInputController.text = value;
+        _sendAiMessage();
+      },
+      itemBuilder: (ctx) => _aiPresets
+          .map((p) => PopupMenuItem(
+                value: p,
+                child: Row(
+                  children: [
+                    Icon(Icons.bolt_rounded,
+                        size: 16,
+                        color: const Color(0xFFFF6B6B).withValues(alpha: 0.7)),
+                    const SizedBox(width: 10),
+                    Text(p, style: const TextStyle(fontSize: 13)),
+                  ],
+                ),
+              ))
+          .toList(),
     );
   }
 
@@ -951,6 +1151,229 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   }
 
   // ==================== 工具方法 ====================
+
+  void _showFullScreenImage(String imagePath) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            elevation: 0,
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: Image.file(File(imagePath), fit: BoxFit.contain),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 渲染 Markdown 预览（复用自 FullBlockEditor 的预览逻辑）
+  Widget _renderMarkdownPreview(String text, bool isDark) {
+    final lines = text.split('\n');
+    final spans = <Widget>[];
+
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i];
+
+      if (line.trimRight() == '---' || line.trimRight() == '***') {
+        spans.add(Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Divider(
+              color: isDark ? Colors.grey[800] : Colors.grey[300], height: 1),
+        ));
+        continue;
+      }
+
+      if (line.startsWith('# ')) {
+        spans.add(Padding(
+          padding: const EdgeInsets.only(top: 10, bottom: 3),
+          child: Text(line.substring(2),
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  height: 1.3,
+                  color: isDark ? Colors.white : Colors.black)),
+        ));
+        continue;
+      }
+      if (line.startsWith('## ')) {
+        spans.add(Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 2),
+          child: Text(line.substring(3),
+              style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  height: 1.3,
+                  color: isDark ? Colors.white : Colors.black)),
+        ));
+        continue;
+      }
+      if (line.startsWith('### ')) {
+        spans.add(Padding(
+          padding: const EdgeInsets.only(top: 7, bottom: 2),
+          child: Text(line.substring(4),
+              style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  height: 1.3,
+                  color: isDark ? Colors.white : const Color(0xFF333333))),
+        ));
+        continue;
+      }
+
+      if (line.startsWith('> ')) {
+        spans.add(Container(
+          margin: const EdgeInsets.only(top: 4, bottom: 4),
+          padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+          decoration: BoxDecoration(
+            border: Border(
+              left: BorderSide(
+                  color: const Color(0xFFFF6B6B).withValues(alpha: 0.4),
+                  width: 3),
+            ),
+          ),
+          child: _parseInlineMD(
+              line.substring(2),
+              TextStyle(
+                  fontSize: 13,
+                  height: 1.5,
+                  color: isDark ? Colors.grey[400] : Colors.grey[700],
+                  fontStyle: FontStyle.italic),
+              isDark),
+        ));
+        continue;
+      }
+
+      if (line.trimLeft().startsWith('- ')) {
+        final indent = line.length - line.trimLeft().length;
+        final content = line.trimLeft().substring(2);
+        spans.add(Padding(
+          padding: EdgeInsets.only(left: indent + 14.0, top: 1, bottom: 1),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('• ',
+                  style: TextStyle(fontSize: 13, color: Color(0xFFFF6B6B))),
+              Expanded(
+                  child: _parseInlineMD(
+                      content,
+                      TextStyle(
+                          fontSize: 13,
+                          height: 1.5,
+                          color: isDark
+                              ? Colors.grey[300]
+                              : const Color(0xFF444444)),
+                      isDark)),
+            ],
+          ),
+        ));
+        continue;
+      }
+
+      final olMatch = RegExp(r'^\d+\.\s').firstMatch(line);
+      if (olMatch != null) {
+        final content = line.substring(olMatch.end);
+        spans.add(Padding(
+          padding: const EdgeInsets.only(left: 14, top: 1, bottom: 1),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('${line.substring(0, olMatch.end - 2)}. ',
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: const Color(0xFFFF6B6B).withValues(alpha: 0.7))),
+              Expanded(
+                  child: _parseInlineMD(
+                      content,
+                      TextStyle(
+                          fontSize: 13,
+                          height: 1.5,
+                          color: isDark
+                              ? Colors.grey[300]
+                              : const Color(0xFF444444)),
+                      isDark)),
+            ],
+          ),
+        ));
+        continue;
+      }
+
+      if (line.trim().isEmpty) {
+        spans.add(const SizedBox(height: 6));
+        continue;
+      }
+
+      spans.add(Padding(
+        padding: const EdgeInsets.only(top: 3, bottom: 3),
+        child: _parseInlineMD(
+            line,
+            TextStyle(
+                fontSize: 13,
+                height: 1.6,
+                color: isDark ? Colors.grey[200] : const Color(0xFF333333)),
+            isDark),
+      ));
+    }
+
+    if (spans.isEmpty) {
+      return Text('暂无内容',
+          style: TextStyle(fontSize: 13, color: Colors.grey[500]));
+    }
+
+    return Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: spans);
+  }
+
+  /// 解析行内 Markdown：**粗体**、_斜体_、`代码`
+  Widget _parseInlineMD(String text, TextStyle baseStyle, bool isDark) {
+    final segments = <InlineSpan>[];
+    final regex = RegExp(r'(\*\*(.+?)\*\*|_(.+?)_|`(.+?)`)');
+    int lastEnd = 0;
+
+    for (final match in regex.allMatches(text)) {
+      if (match.start > lastEnd) {
+        segments.add(TextSpan(
+            text: text.substring(lastEnd, match.start), style: baseStyle));
+      }
+
+      if (match.group(2) != null) {
+        segments.add(TextSpan(
+            text: match.group(2),
+            style: baseStyle.copyWith(fontWeight: FontWeight.bold)));
+      } else if (match.group(3) != null) {
+        segments.add(TextSpan(
+            text: match.group(3),
+            style: baseStyle.copyWith(fontStyle: FontStyle.italic)));
+      } else if (match.group(4) != null) {
+        segments.add(TextSpan(
+          text: match.group(4),
+          style: baseStyle.copyWith(
+            fontFamily: 'monospace',
+            fontSize: (baseStyle.fontSize ?? 13) - 1,
+            backgroundColor:
+                isDark ? const Color(0xFF2A2A2A) : const Color(0xFFF0F0F0),
+            color: const Color(0xFFFF6B6B),
+          ),
+        ));
+      }
+
+      lastEnd = match.end;
+    }
+
+    if (lastEnd < text.length) {
+      segments.add(TextSpan(text: text.substring(lastEnd), style: baseStyle));
+    }
+
+    return RichText(text: TextSpan(children: segments));
+  }
 
   List<String> _parseMediaPaths(String mediaPathsJson) {
     try {

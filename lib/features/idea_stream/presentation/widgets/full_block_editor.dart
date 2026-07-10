@@ -29,7 +29,7 @@ class _FullBlockEditorState extends State<FullBlockEditor> {
   // 格式化工具状态
   bool _boldActive = false;
   String _headingLevel = '';
-  bool _isPreview = false;
+  late bool _isPreview;
 
   // 时间戳
   late String _createdTime;
@@ -37,6 +37,8 @@ class _FullBlockEditorState extends State<FullBlockEditor> {
   @override
   void initState() {
     super.initState();
+    _isPreview =
+        widget.initialContent != null && widget.initialContent!.isNotEmpty;
     _controller = TextEditingController(text: widget.initialContent ?? '');
     _mediaPaths = widget.initialMediaPaths != null
         ? List.from(widget.initialMediaPaths!)

@@ -86,7 +86,8 @@ class _QuickInputBottomSheetState extends State<QuickInputBottomSheet> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: Container(
         decoration: BoxDecoration(
           color: theme.cardColor,
@@ -134,12 +135,13 @@ class _QuickInputBottomSheetState extends State<QuickInputBottomSheet> {
                         right: 4,
                         top: 0,
                         child: GestureDetector(
-                          onTap: () =>
-                              setState(() => _pendingMediaPaths.removeAt(index)),
+                          onTap: () => setState(
+                              () => _pendingMediaPaths.removeAt(index)),
                           child: Container(
                             padding: const EdgeInsets.all(2),
                             decoration: const BoxDecoration(
-                                color: Colors.redAccent, shape: BoxShape.circle),
+                                color: Colors.redAccent,
+                                shape: BoxShape.circle),
                             child: const Icon(Icons.close,
                                 size: 12, color: Colors.white),
                           ),
@@ -170,7 +172,7 @@ class _QuickInputBottomSheetState extends State<QuickInputBottomSheet> {
                       hintStyle:
                           TextStyle(color: theme.hintColor, fontSize: 13),
                       border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide.none),
                       filled: true,
                       fillColor: isDark

@@ -31,7 +31,8 @@ class _ChatPageState extends State<ChatPage> {
 
   final List<ChatBubble> _messages = [
     ChatBubble(
-      text: "你好！我是 Locus 右脑。我已经成功点亮了**长期记忆**。现在我更进一步，解封了**高级 Markdown 视觉排版能力**。你可以让我试着写一段代码、列一个专业表格，或者梳理复杂的业务流程了！",
+      text:
+          "你好！我是 Locus 右脑。我已经成功点亮了**长期记忆**。现在我更进一步，解封了**高级 Markdown 视觉排版能力**。你可以让我试着写一段代码、列一个专业表格，或者梳理复杂的业务流程了！",
       isUser: false,
     ),
   ];
@@ -72,7 +73,8 @@ class _ChatPageState extends State<ChatPage> {
     _scrollToBottom();
 
     final apiKey = (dotenv.env['LLM_API_KEY'] ?? '').trim();
-    var baseUrl = (dotenv.env['LLM_BASE_URL'] ?? 'https://api.deepseek.com/v1').trim();
+    var baseUrl =
+        (dotenv.env['LLM_BASE_URL'] ?? 'https://api.deepseek.com/v1').trim();
     final modelName = (dotenv.env['LLM_MODEL_NAME'] ?? 'deepseek-chat').trim();
 
     if (baseUrl.endsWith('/')) {
@@ -99,8 +101,7 @@ class _ChatPageState extends State<ChatPage> {
       }
     }
     if (ragContext.isNotEmpty) {
-      systemPrompt +=
-          '\n\n【📚 参考文档资料】：\n$ragContext\n\n请优先基于上述参考文档资料来回答用户的问题。';
+      systemPrompt += '\n\n【📚 参考文档资料】：\n$ragContext\n\n请优先基于上述参考文档资料来回答用户的问题。';
     }
     systemPrompt +=
         '\n\n【特别指令】：如果用户明确要求你记住某事，请在回答的末尾加上特殊标记：[SAVE_MEMORY: 要记住的具体事实]。';
@@ -120,10 +121,8 @@ class _ChatPageState extends State<ChatPage> {
         : _messages;
 
     for (var msg in recentMessages) {
-      apiMessages.add({
-        'role': msg.isUser ? 'user' : 'assistant',
-        'content': msg.text
-      });
+      apiMessages.add(
+          {'role': msg.isUser ? 'user' : 'assistant', 'content': msg.text});
     }
 
     try {
@@ -176,7 +175,8 @@ class _ChatPageState extends State<ChatPage> {
                 final memoryToSave = match.group(1);
                 if (memoryToSave != null && memoryToSave.trim().isNotEmpty) {
                   await db.addMemory(memoryToSave.trim(), tags: 'AI自动提取');
-                  currentReply = currentReply.replaceAll(memoryRegex, '').trim();
+                  currentReply =
+                      currentReply.replaceAll(memoryRegex, '').trim();
                 }
               }
 
@@ -189,7 +189,8 @@ class _ChatPageState extends State<ChatPage> {
 
               // 保存用户的提问和 AI 的回答
               await db.insertMessage(_currentSessionId!, 'user', text);
-              await db.insertMessage(_currentSessionId!, 'assistant', currentReply);
+              await db.insertMessage(
+                  _currentSessionId!, 'assistant', currentReply);
 
               break;
             }
@@ -274,9 +275,9 @@ class _ChatPageState extends State<ChatPage> {
 
       _messages.clear();
       _messages.addAll(historyMessages.map((msg) => ChatBubble(
-        text: msg.content,
-        isUser: msg.role == 'user',
-      )));
+            text: msg.content,
+            isUser: msg.role == 'user',
+          )));
 
       _isAiThinking = false;
     });
@@ -361,8 +362,7 @@ class _ChatPageState extends State<ChatPage> {
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
               itemCount: _messages.length,
               itemBuilder: (context, index) {
                 final msg = _messages[index];
@@ -382,13 +382,12 @@ class _ChatPageState extends State<ChatPage> {
                       height: 14,
                       child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: theme.colorScheme.primary
-                              .withValues(alpha: 0.6)),
+                          color:
+                              theme.colorScheme.primary.withValues(alpha: 0.6)),
                     ),
                     const SizedBox(width: 10),
                     Text("Locus 正在思考...",
-                        style: TextStyle(
-                            color: theme.hintColor, fontSize: 13)),
+                        style: TextStyle(color: theme.hintColor, fontSize: 13)),
                   ],
                 ),
               ),
@@ -417,8 +416,7 @@ class _ChatPageState extends State<ChatPage> {
           const SizedBox(width: 10),
           Flexible(
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: msg.isUser ? userBubbleColor : aiBubbleColor,
                 borderRadius: BorderRadius.only(
@@ -470,8 +468,8 @@ class _ChatPageState extends State<ChatPage> {
                               ? const Color(0xFF2A2A2A)
                               : const Color(0xFFF5F5F5),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                              color: theme.dividerColor, width: 1),
+                          border:
+                              Border.all(color: theme.dividerColor, width: 1),
                         ),
                         tableBorder: TableBorder.all(
                             color: theme.dividerColor, width: 1),
@@ -532,15 +530,15 @@ class _ChatPageState extends State<ChatPage> {
                   hintText: '向 Locus 提问...',
                   hintStyle: TextStyle(color: theme.hintColor),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide.none,
                   ),
                   filled: true,
                   fillColor: isDark
-                      ? const Color(0xFF2A2A2A)
-                      : const Color(0xFFF5F5F5),
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
+                      ? const Color(0xFF262626)
+                      : const Color(0xFFF1F3F5),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 ),
               ),
             ),

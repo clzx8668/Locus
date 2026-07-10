@@ -75,95 +75,96 @@ class _LocusHomePageState extends State<LocusHomePage> {
     Widget mainContentStack = Stack(
       children: [
         _pages[_currentIndex],
-        AnimatedPositioned(
-          duration:
-              _isDragging ? Duration.zero : const Duration(milliseconds: 300),
-          curve: Curves.easeOutBack,
-          left: leftPosition,
-          bottom: !isSmallScreen ? 32.0 : _bottomOffset,
-          child: GestureDetector(
-            onHorizontalDragStart: (_) {
-              setState(() {
-                _isDragging = true;
-                _dragX = leftPosition;
-              });
-            },
-            onHorizontalDragUpdate: (details) {
-              setState(() {
-                _dragX = (_dragX ?? leftPosition) + details.delta.dx;
-              });
-            },
-            onHorizontalDragEnd: (details) {
-              final dragX = _dragX;
-              if (dragX == null) {
-                setState(() => _isDragging = false);
-                return;
-              }
-              setState(() {
-                _isDragging = false;
-                final currentCenterX = dragX + (_buttonSize / 2);
-                final velocityX = details.velocity.pixelsPerSecond.dx;
-
-                if (velocityX > 300) {
-                  _isRightSide = true;
-                } else if (velocityX < -300) {
-                  _isRightSide = false;
-                } else {
-                  _isRightSide = currentCenterX > (contentAreaWidth / 2);
+        if (_currentIndex != 2)
+          AnimatedPositioned(
+            duration:
+                _isDragging ? Duration.zero : const Duration(milliseconds: 300),
+            curve: Curves.easeOutBack,
+            left: leftPosition,
+            bottom: !isSmallScreen ? 32.0 : _bottomOffset,
+            child: GestureDetector(
+              onHorizontalDragStart: (_) {
+                setState(() {
+                  _isDragging = true;
+                  _dragX = leftPosition;
+                });
+              },
+              onHorizontalDragUpdate: (details) {
+                setState(() {
+                  _dragX = (_dragX ?? leftPosition) + details.delta.dx;
+                });
+              },
+              onHorizontalDragEnd: (details) {
+                final dragX = _dragX;
+                if (dragX == null) {
+                  setState(() => _isDragging = false);
+                  return;
                 }
+                setState(() {
+                  _isDragging = false;
+                  final currentCenterX = dragX + (_buttonSize / 2);
+                  final velocityX = details.velocity.pixelsPerSecond.dx;
 
-                if (_isRightSide &&
-                    (velocityX > 200 ||
-                        dragX > (contentAreaWidth - _buttonSize - 5))) {
-                  _isCollapsed = true;
-                } else if (!_isRightSide && (velocityX < -200 || dragX < 5)) {
-                  _isCollapsed = true;
+                  if (velocityX > 300) {
+                    _isRightSide = true;
+                  } else if (velocityX < -300) {
+                    _isRightSide = false;
+                  } else {
+                    _isRightSide = currentCenterX > (contentAreaWidth / 2);
+                  }
+
+                  if (_isRightSide &&
+                      (velocityX > 200 ||
+                          dragX > (contentAreaWidth - _buttonSize - 5))) {
+                    _isCollapsed = true;
+                  } else if (!_isRightSide && (velocityX < -200 || dragX < 5)) {
+                    _isCollapsed = true;
+                  } else {
+                    _isCollapsed = false;
+                  }
+                  _dragX = null;
+                });
+              },
+              onTap: () {
+                if (_isCollapsed) {
+                  setState(() => _isCollapsed = false);
                 } else {
-                  _isCollapsed = false;
+                  _openQuickInputConsole(context);
                 }
-                _dragX = null;
-              });
-            },
-            onTap: () {
-              if (_isCollapsed) {
-                setState(() => _isCollapsed = false);
-              } else {
-                _openQuickInputConsole(context);
-              }
-            },
-            child: Opacity(
-              opacity: _isCollapsed ? 0.5 : 1.0,
-              child: Container(
-                width: _buttonSize,
-                height: _buttonSize,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFF6B6B),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFFF6B6B).withValues(alpha: 0.4),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    )
-                  ],
-                ),
-                child: Center(
-                  child: AnimatedRotation(
-                    duration: const Duration(milliseconds: 200),
-                    turns: _isCollapsed ? (_isRightSide ? -0.25 : 0.25) : 0.0,
-                    child: Icon(
-                      _isCollapsed
-                          ? Icons.arrow_back_ios_new_rounded
-                          : Icons.add_rounded,
-                      color: Colors.white,
-                      size: _isCollapsed ? 16 : 32,
+              },
+              child: Opacity(
+                opacity: _isCollapsed ? 0.5 : 1.0,
+                child: Container(
+                  width: _buttonSize,
+                  height: _buttonSize,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF6B6B),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFFF6B6B).withValues(alpha: 0.4),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      )
+                    ],
+                  ),
+                  child: Center(
+                    child: AnimatedRotation(
+                      duration: const Duration(milliseconds: 200),
+                      turns: _isCollapsed ? (_isRightSide ? -0.25 : 0.25) : 0.0,
+                      child: Icon(
+                        _isCollapsed
+                            ? Icons.arrow_back_ios_new_rounded
+                            : Icons.add_rounded,
+                        color: Colors.white,
+                        size: _isCollapsed ? 16 : 32,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
       ],
     );
 
