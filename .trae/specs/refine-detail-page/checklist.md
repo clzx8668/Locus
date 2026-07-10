@@ -1,0 +1,23 @@
+# Checklist
+
+- [x] `HubPayloads` 表包含 `title` 列（nullable TextColumn）
+- [x] `ContentBlocks` 表包含 `tags` 列（TextColumn，默认 `'[]'`）
+- [x] `build_runner` 重新生成成功，无编译错误
+- [x] `updatePayloadTitle` 方法正确实现
+- [x] `updateBlockTags` 方法正确实现
+- [x] Repository 层暴露 `updateTitle` 和 `updateBlockTags`
+- [x] 追加新块不再调用 `_repo.update()` 覆盖摘要
+- [x] 编辑首块时自动同步摘要至 `rawText`
+- [x] 编辑非首块时不更新摘要
+- [x] 首次进入内容页且无标题时，自动从首块内容生成标题
+- [x] 标题已存在时不再自动生成，保持原值
+- [x] AppBar 右上角更多菜单包含「修改标题」选项
+- [x] 标题修改弹窗工作正常（输入 → 保存 → AppBar 更新）
+- [x] 标题清空时回退到自动生成逻辑
+- [x] 页面顶部 `_buildTagSection` 已移除
+- [x] 每个内容块下方显示各自标签 chip
+- [x] 按块添加标签弹窗工作正常
+- [x] 按块删除标签（点击 ×）工作正常
+- [x] 标签 JSON 序列化/反序列化正确
+- [x] 暗黑模式下标签和标题显示正常
+- [x] 旧数据（无 title/tags）兼容，不崩溃

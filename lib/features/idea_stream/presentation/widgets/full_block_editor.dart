@@ -402,9 +402,7 @@ class _FullBlockEditorState extends State<FullBlockEditor> {
       if (line.trimRight() == '---' || line.trimRight() == '***') {
         spans.add(Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Divider(
-              color:
-                  isDark ? const Color(0xFF333333) : const Color(0xFFE0E0E0)),
+          child: Divider(color: Theme.of(context).dividerColor),
         ));
         continue;
       }
@@ -644,9 +642,7 @@ class _FullBlockEditorState extends State<FullBlockEditor> {
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFFAFAFA),
         border: Border(
-          bottom: BorderSide(
-              color: isDark ? const Color(0xFF262626) : const Color(0xFFEEEEEE),
-              width: 1),
+          bottom: BorderSide(color: Theme.of(context).dividerColor, width: 1),
         ),
       ),
       child: ListView(
@@ -702,9 +698,7 @@ class _FullBlockEditorState extends State<FullBlockEditor> {
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFFAFAFA),
         border: Border(
-          top: BorderSide(
-              color: isDark ? const Color(0xFF262626) : const Color(0xFFEEEEEE),
-              width: 1),
+          top: BorderSide(color: Theme.of(context).dividerColor, width: 1),
         ),
       ),
       child: ListView.separated(
@@ -760,9 +754,7 @@ class _FullBlockEditorState extends State<FullBlockEditor> {
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFFFAFAFA),
         border: Border(
-          top: BorderSide(
-              color: isDark ? const Color(0xFF262626) : const Color(0xFFEEEEEE),
-              width: 1),
+          top: BorderSide(color: Theme.of(context).dividerColor, width: 1),
         ),
       ),
       child: SafeArea(

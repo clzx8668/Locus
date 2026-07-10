@@ -16,13 +16,7 @@ class LocusHomePage extends StatefulWidget {
 class _LocusHomePageState extends State<LocusHomePage> {
   int _currentIndex = 0;
 
-  List<Widget> get _pages => [
-        IdeaStreamPage(
-            onNavigate: (index) => setState(() => _currentIndex = index)),
-        const CalendarPage(),
-        const AiHubPage(),
-        const SettingsPage(),
-      ];
+  late final List<Widget> _pages;
 
   bool _isRightSide = true;
   bool _isCollapsed = false;
@@ -35,11 +29,24 @@ class _LocusHomePageState extends State<LocusHomePage> {
   final double _bottomOffset = 100.0;
 
   @override
+  void initState() {
+    super.initState();
+    _pages = [
+      RepaintBoundary(
+          child: IdeaStreamPage(
+              onNavigate: (index) => setState(() => _currentIndex = index))),
+      const RepaintBoundary(child: CalendarPage()),
+      const RepaintBoundary(child: AiHubPage()),
+      const RepaintBoundary(child: SettingsPage()),
+    ];
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final colors = theme.extension<AppColorsExtension>()!;
-
+    final colors = theme.extension<AppColorsExtension>() ??
+        AppColorsExtension.defaultLight();
     final screenWidth = MediaQuery.of(context).size.width;
     final bool isSmallScreen = screenWidth < 600;
     final bool isMediumScreen = screenWidth >= 600 && screenWidth < 960;
@@ -67,7 +74,7 @@ class _LocusHomePageState extends State<LocusHomePage> {
 
     Widget mainContentStack = Stack(
       children: [
-        IndexedStack(index: _currentIndex, children: _pages),
+        _pages[_currentIndex],
         AnimatedPositioned(
           duration:
               _isDragging ? Duration.zero : const Duration(milliseconds: 300),
@@ -87,9 +94,14 @@ class _LocusHomePageState extends State<LocusHomePage> {
               });
             },
             onHorizontalDragEnd: (details) {
+              final dragX = _dragX;
+              if (dragX == null) {
+                setState(() => _isDragging = false);
+                return;
+              }
               setState(() {
                 _isDragging = false;
-                final currentCenterX = _dragX! + (_buttonSize / 2);
+                final currentCenterX = dragX + (_buttonSize / 2);
                 final velocityX = details.velocity.pixelsPerSecond.dx;
 
                 if (velocityX > 300) {
@@ -102,9 +114,9 @@ class _LocusHomePageState extends State<LocusHomePage> {
 
                 if (_isRightSide &&
                     (velocityX > 200 ||
-                        _dragX! > (contentAreaWidth - _buttonSize - 5))) {
+                        dragX > (contentAreaWidth - _buttonSize - 5))) {
                   _isCollapsed = true;
-                } else if (!_isRightSide && (velocityX < -200 || _dragX! < 5)) {
+                } else if (!_isRightSide && (velocityX < -200 || dragX < 5)) {
                   _isCollapsed = true;
                 } else {
                   _isCollapsed = false;
@@ -191,8 +203,7 @@ class _LocusHomePageState extends State<LocusHomePage> {
             child: NavigationBar(
               selectedIndex: _currentIndex,
               elevation: 0,
-              backgroundColor:
-                  isDark ? const Color(0xFF1E1E1E) : colors.surface1,
+              backgroundColor: colors.surface1,
               surfaceTintColor: Colors.transparent,
               height: 48,
               labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
@@ -229,7 +240,8 @@ class _LocusHomePageState extends State<LocusHomePage> {
   Widget _buildSidebarContent(BuildContext context, double width, bool isMedium,
       {required bool isLargeScreen}) {
     final theme = Theme.of(context);
-    final colors = theme.extension<AppColorsExtension>()!;
+    final colors = theme.extension<AppColorsExtension>() ??
+        AppColorsExtension.defaultLight();
 
     final menuItems = [
       {'label': '首页', 'icon': Icons.flash_on},

@@ -23,6 +23,14 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
   bool _isGridView = false;
   List<String> _selectedTags = [];
   final Map<int, String> _blockTextCache = {};
+  final Map<int, int> _blockCountCache = {};
+  late final Stream<List<HubPayload>> _allPayloadsStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _allPayloadsStream = _repo.watchAll();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -54,7 +62,7 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
             ),
             Expanded(
               child: StreamBuilder<List<HubPayload>>(
-                stream: _repo.watchAll(),
+                stream: _allPayloadsStream,
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) {
                     return const Center(
@@ -85,6 +93,17 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                       _repo.getFirstBlockText(item.id).then((text) {
                         if (text != null && mounted) {
                           setState(() => _blockTextCache[item.id] = text!);
+                        }
+                      });
+                    }
+                  }
+
+                  // 异步加载内容块数量
+                  for (final item in items) {
+                    if (!_blockCountCache.containsKey(item.id)) {
+                      _repo.getBlockCount(item.id).then((count) {
+                        if (mounted) {
+                          setState(() => _blockCountCache[item.id] = count);
                         }
                       });
                     }
@@ -265,7 +284,7 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
         color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
         border: Border(
           bottom: BorderSide(
-            color: isDark ? const Color(0xFF262626) : const Color(0x1E000000),
+            color: Theme.of(context).dividerColor,
             width: 1,
           ),
         ),
@@ -375,29 +394,30 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(dateStr,
-                    style: TextStyle(color: theme.hintColor, fontSize: 11)),
-                if (hasTag)
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFF6B6B).withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      data.intentTag.toUpperCase(),
-                      style: const TextStyle(
-                          color: Color(0xFFFF6B6B),
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold),
-                    ),
-                  ),
-              ],
-            ),
+            // ===== 装饰短横线：数量 = 内容块数量 =====
+            Builder(builder: (context) {
+              final count = (_blockCountCache[data.id] ?? 1).clamp(1, 12);
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Wrap(
+                  spacing: 5,
+                  runSpacing: 4,
+                  children: List.generate(count, (i) {
+                    return Container(
+                      width: 22,
+                      height: 2.5,
+                      decoration: BoxDecoration(
+                        color: theme.hintColor.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    );
+                  }),
+                ),
+              );
+            }),
+            // 日期行
+            Text(dateStr,
+                style: TextStyle(color: theme.hintColor, fontSize: 11)),
             const SizedBox(height: 8),
             if (mediaPaths.isNotEmpty && !_isGridView) ...[
               _buildImagePreview(mediaPaths),
@@ -412,6 +432,28 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                     fontSize: 14, height: 1.45, fontWeight: FontWeight.w500),
               ),
             ),
+            // ===== 标签移至底部左对齐 =====
+            if (hasTag) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF6B6B).withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    data.intentTag.toUpperCase(),
+                    style: const TextStyle(
+                        color: Color(0xFFFF6B6B),
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -599,9 +641,7 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
               decoration: BoxDecoration(
                 border: Border(
                   bottom: BorderSide(
-                    color: isDark
-                        ? const Color(0xFF262626)
-                        : const Color(0x33FFFFFF),
+                    color: theme.dividerColor,
                     width: 1,
                   ),
                 ),

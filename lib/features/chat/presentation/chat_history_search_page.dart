@@ -17,19 +17,22 @@ class _ChatHistorySearchPageState extends State<ChatHistorySearchPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: theme.cardColor,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black87),
         title: TextField(
           controller: _searchController,
           autofocus: true,
-          decoration: const InputDecoration(
+          style: TextStyle(color: theme.textTheme.bodyLarge?.color),
+          decoration: InputDecoration(
             hintText: '搜索历史对话内容或标题...',
             border: InputBorder.none,
-            hintStyle: TextStyle(color: Colors.black38),
+            hintStyle: TextStyle(color: theme.hintColor),
           ),
           onChanged: (value) {
             setState(() {
@@ -40,7 +43,8 @@ class _ChatHistorySearchPageState extends State<ChatHistorySearchPage> {
       ),
       body: Column(
         children: [
-          const Divider(height: 1, color: Colors.black12),
+          Divider(
+              height: 1, color: theme.dividerColor.withValues(alpha: 0.3)),
           Expanded(
             child: StreamBuilder<List<ChatSession>>(
               stream: db.watchAllSessions(_searchQuery),
@@ -56,11 +60,19 @@ class _ChatHistorySearchPageState extends State<ChatHistorySearchPage> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.search_off_rounded, size: 64, color: Colors.grey[300]),
+                        Icon(Icons.search_off_rounded,
+                            size: 64,
+                            color: theme.textTheme.bodyMedium?.color
+                                ?.withValues(alpha: 0.4)),
                         const SizedBox(height: 16),
                         Text(
-                          _searchQuery.isEmpty ? '暂无历史对话记录' : '没有找到相关记忆...',
-                          style: TextStyle(color: Colors.grey[500], fontSize: 16),
+                          _searchQuery.isEmpty
+                              ? '暂无历史对话记录'
+                              : '没有找到相关记忆...',
+                          style: TextStyle(
+                              color: theme.textTheme.bodyMedium?.color
+                                  ?.withValues(alpha: 0.5),
+                              fontSize: 16),
                         ),
                       ],
                     ),
@@ -75,11 +87,15 @@ class _ChatHistorySearchPageState extends State<ChatHistorySearchPage> {
                         "${session.updatedAt.month}-${session.updatedAt.day} ${session.updatedAt.hour}:${session.updatedAt.minute.toString().padLeft(2, '0')}";
 
                     return ListTile(
-                      leading:
-                          const Icon(Icons.chat_bubble_outline, color: Colors.blueGrey),
+                      leading: Icon(Icons.chat_bubble_outline,
+                          color: theme.colorScheme.primary
+                              .withValues(alpha: 0.7)),
                       title: Text(session.title,
-                          style: const TextStyle(fontWeight: FontWeight.w500)),
-                      subtitle: Text('最后活跃: $timeStr'),
+                          style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: theme.textTheme.bodyLarge?.color)),
+                      subtitle: Text('最后活跃: $timeStr',
+                          style: TextStyle(color: theme.hintColor)),
                       onTap: () {
                         Navigator.pop(context, session.id);
                       },

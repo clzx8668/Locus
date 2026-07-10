@@ -94,70 +94,102 @@ class _AppearanceSettingsPageState extends State<AppearanceSettingsPage> {
   }
 
   // ────────────────────────
-  // 字体大小选择器
+  // 字体大小选择器（刻度滑动条）
   // ────────────────────────
   Widget _buildFontScaleSelector(AppColorsExtension colors) {
-    const options = [
-      {'label': '小', 'scale': 0.85},
-      {'label': '默认', 'scale': 1.0},
-      {'label': '大', 'scale': 1.15},
-      {'label': '特大', 'scale': 1.3},
-    ];
+    const scales = [0.85, 1.0, 1.15, 1.3];
+    const labels = ['小', '默认', '大', '特大'];
 
-    return Row(
-      children: options.map((opt) {
-        final scale = opt['scale'] as double;
-        final isSelected = (_settings.fontScale - scale).abs() < 0.01;
-        return Expanded(
-          child: Padding(
-            padding: EdgeInsets.only(
-                left: opt == options.first ? 0 : 6,
-                right: opt == options.last ? 0 : 6),
-            child: GestureDetector(
-              onTap: () => _settings.setFontScale(scale),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? const Color(0xFFFF6B6B).withValues(alpha: 0.15)
-                      : colors.surface1,
-                  borderRadius: BorderRadius.circular(AppDimensions.radiusSM),
-                  border: Border.all(
-                    color: isSelected
-                        ? const Color(0xFFFF6B6B)
-                        : colors.textTertiary.withValues(alpha: 0.4),
-                    width: isSelected ? 1.5 : 1,
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surface2,
+        borderRadius: BorderRadius.circular(AppDimensions.radiusSM),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 当前值预览
+          Row(
+            children: [
+              Text('预览',
+                  style: AppTypography.caption
+                      .copyWith(color: colors.textTertiary)),
+              const Spacer(),
+              Text(
+                  '${(_settings.fontScale * 100).toInt()}% · ${_settings.fontScaleLabel}',
+                  style: AppTypography.body1.copyWith(
+                      color: const Color(0xFFFF6B6B),
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // 滑块
+          Row(
+            children: [
+              Text('A',
+                  style: AppTypography.caption
+                      .copyWith(color: colors.textTertiary, fontSize: 13)),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderThemeData(
+                    trackHeight: 5,
+                    activeTrackColor: const Color(0xFFFF6B6B),
+                    inactiveTrackColor:
+                        colors.textTertiary.withValues(alpha: 0.3),
+                    thumbColor: const Color(0xFFFF6B6B),
+                    overlayColor:
+                        const Color(0xFFFF6B6B).withValues(alpha: 0.12),
+                    tickMarkShape:
+                        const RoundSliderTickMarkShape(tickMarkRadius: 4),
+                    activeTickMarkColor: Colors.white,
+                    inactiveTickMarkColor:
+                        colors.textTertiary.withValues(alpha: 0.5),
+                    valueIndicatorColor: const Color(0xFFFF6B6B),
+                    valueIndicatorTextStyle: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600),
+                    showValueIndicator: ShowValueIndicator.onlyForDiscrete,
+                  ),
+                  child: Slider(
+                    value: _settings.fontScale.clamp(0.85, 1.3),
+                    min: 0.85,
+                    max: 1.3,
+                    divisions: 3,
+                    label: '${(_settings.fontScale * 100).toInt()}%',
+                    onChanged: (v) => _settings.setFontScale(v),
                   ),
                 ),
-                child: Column(
-                  children: [
-                    Text(
-                      opt['label'] as String,
-                      style: AppTypography.body1.copyWith(
-                        color: isSelected
-                            ? const Color(0xFFFF6B6B)
-                            : colors.textPrimary,
-                        fontWeight:
-                            isSelected ? FontWeight.w600 : FontWeight.normal,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${(scale * 100).toInt()}%',
-                      style: AppTypography.caption.copyWith(
-                        color: isSelected
-                            ? const Color(0xFFFF6B6B).withValues(alpha: 0.7)
-                            : colors.textTertiary,
-                      ),
-                    ),
-                  ],
-                ),
               ),
+              Text('A',
+                  style: AppTypography.h3.copyWith(
+                      color: colors.textTertiary, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          // 刻度标签
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: List.generate(labels.length, (i) {
+                final isActive = (_settings.fontScale - scales[i]).abs() < 0.03;
+                return Text(
+                  labels[i],
+                  style: AppTypography.label.copyWith(
+                    fontSize: 11,
+                    color: isActive
+                        ? const Color(0xFFFF6B6B)
+                        : colors.textTertiary,
+                    fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                );
+              }),
             ),
           ),
-        );
-      }).toList(),
+        ],
+      ),
     );
   }
 
@@ -182,8 +214,7 @@ class _AppearanceSettingsPageState extends State<AppearanceSettingsPage> {
         return Expanded(
           child: Padding(
             padding: EdgeInsets.only(
-                left: m == modes.first ? 0 : 6,
-                right: m == modes.last ? 0 : 6),
+                left: m == modes.first ? 0 : 6, right: m == modes.last ? 0 : 6),
             child: GestureDetector(
               onTap: () => _settings.setThemeMode(mode),
               child: AnimatedContainer(
@@ -277,6 +308,27 @@ class _AppearanceSettingsPageState extends State<AppearanceSettingsPage> {
               'bg': const Color(0xFFEAE4D9),
               'text': const Color(0xFF4A4036),
             },
+            {
+              'style': AppThemeStyle.roseBlush,
+              'label': '玫瑰绯',
+              'primary': const Color(0xFFE89598),
+              'bg': const Color(0xFFF9ECEA),
+              'text': const Color(0xFF3D2F2F),
+            },
+            {
+              'style': AppThemeStyle.lavenderPurple,
+              'label': '薰衣草紫',
+              'primary': const Color(0xFF9B7EC4),
+              'bg': const Color(0xFFEFECF7),
+              'text': const Color(0xFF2F2E3D),
+            },
+            {
+              'style': AppThemeStyle.matchaGreen,
+              'label': '抹茶绿',
+              'primary': const Color(0xFF7DAA7A),
+              'bg': const Color(0xFFECF1EA),
+              'text': const Color(0xFF2E3A2D),
+            },
           ];
 
     final currentStyle =
@@ -327,8 +379,7 @@ class _AppearanceSettingsPageState extends State<AppearanceSettingsPage> {
                   height: 36,
                   decoration: BoxDecoration(
                     color: primary,
-                    borderRadius:
-                        BorderRadius.circular(AppDimensions.radiusXS),
+                    borderRadius: BorderRadius.circular(AppDimensions.radiusXS),
                   ),
                   child: isSelected
                       ? const Icon(Icons.check_rounded,

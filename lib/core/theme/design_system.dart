@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 
 // ==========================================
@@ -95,6 +94,19 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
     required this.warning,
   });
 
+  /// 默认浅色主题 fallback（防止 theme extension 缺失时崩溃）
+  factory AppColorsExtension.defaultLight() {
+    return const AppColorsExtension(
+      surface1: Color(0xFFFFFFFF),
+      surface2: Color(0xFFF8F9FA),
+      textPrimary: Color(0xFF1A1A2E),
+      textSecondary: Color(0xFF6C757D),
+      textTertiary: Color(0xFFADB5BD),
+      success: Color(0xFF40C057),
+      warning: Color(0xFFFFA94D),
+    );
+  }
+
   @override
   ThemeExtension<AppColorsExtension> copyWith({
     Color? surface1,
@@ -135,7 +147,16 @@ class AppColorsExtension extends ThemeExtension<AppColorsExtension> {
 // ==========================================
 // 🏛️ 轴线四：系统主题总线织造 (Theme Factory)
 // ==========================================
-enum AppThemeStyle { dark, light, celadonGreen, nordicBlue, warmOatmeal }
+enum AppThemeStyle {
+  dark,
+  light,
+  celadonGreen,
+  nordicBlue,
+  warmOatmeal,
+  roseBlush,
+  lavenderPurple,
+  matchaGreen,
+}
 
 class AppThemeSpecification {
   static ThemeData generate(AppThemeStyle style, {double fontScale = 1.0}) {
@@ -229,6 +250,60 @@ class AppThemeSpecification {
             warning: Color(0xFFB35416),
           ),
         );
+
+      // 6. 玫瑰绯（柔和浪漫、生活随笔）
+      case AppThemeStyle.roseBlush:
+        return _buildTheme(
+          brightness: Brightness.light,
+          primary: const Color(0xFFE89598),
+          background: const Color(0xFFFDF6F5),
+          fontScale: fontScale,
+          ext: const AppColorsExtension(
+            surface1: Color(0xFFFFFFFF),
+            surface2: Color(0xFFF9ECEA),
+            textPrimary: Color(0xFF3D2F2F),
+            textSecondary: Color(0xFF978888),
+            textTertiary: Color(0xFFDCCDCD),
+            success: Color(0xFF70B08A),
+            warning: Color(0xFFE88D6C),
+          ),
+        );
+
+      // 7. 薰衣草紫（静谧优雅、创意写作）
+      case AppThemeStyle.lavenderPurple:
+        return _buildTheme(
+          brightness: Brightness.light,
+          primary: const Color(0xFF9B7EC4),
+          background: const Color(0xFFF8F7FC),
+          fontScale: fontScale,
+          ext: const AppColorsExtension(
+            surface1: Color(0xFFFFFFFF),
+            surface2: Color(0xFFEFECF7),
+            textPrimary: Color(0xFF2F2E3D),
+            textSecondary: Color(0xFF7D7A98),
+            textTertiary: Color(0xFFD2CFE5),
+            success: Color(0xFF64B5A6),
+            warning: Color(0xFFF0A070),
+          ),
+        );
+
+      // 8. 抹茶绿（自然清新、知识沉淀）
+      case AppThemeStyle.matchaGreen:
+        return _buildTheme(
+          brightness: Brightness.light,
+          primary: const Color(0xFF7DAA7A),
+          background: const Color(0xFFF6F9F5),
+          fontScale: fontScale,
+          ext: const AppColorsExtension(
+            surface1: Color(0xFFFFFFFF),
+            surface2: Color(0xFFECF1EA),
+            textPrimary: Color(0xFF2E3A2D),
+            textSecondary: Color(0xFF71806F),
+            textTertiary: Color(0xFFCDD5CB),
+            success: Color(0xFF5D9C7A),
+            warning: Color(0xFFE8A050),
+          ),
+        );
     }
   }
 
@@ -268,12 +343,15 @@ class AppThemeSpecification {
             AppTypography.h1.copyWith(color: ext.textPrimary).scale(fontScale),
         titleMedium:
             AppTypography.h3.copyWith(color: ext.textPrimary).scale(fontScale),
-        bodyLarge:
-            AppTypography.body1.copyWith(color: ext.textPrimary).scale(fontScale),
-        bodyMedium:
-            AppTypography.body2.copyWith(color: ext.textPrimary).scale(fontScale),
-        labelLarge:
-            AppTypography.label.copyWith(color: ext.textPrimary).scale(fontScale),
+        bodyLarge: AppTypography.body1
+            .copyWith(color: ext.textPrimary)
+            .scale(fontScale),
+        bodyMedium: AppTypography.body2
+            .copyWith(color: ext.textPrimary)
+            .scale(fontScale),
+        labelLarge: AppTypography.label
+            .copyWith(color: ext.textPrimary)
+            .scale(fontScale),
       ),
 
       // 卡片通用规范
@@ -286,6 +364,40 @@ class AppThemeSpecification {
           side: BorderSide(
               color: ext.textTertiary.withValues(alpha: 0.3), width: 0.8),
         ),
+      ),
+
+      // 全局分割线 / 边框 / 提示色 —— 必须显式映射，否则 Material 不会跟随自定义色系
+      dividerColor: ext.textTertiary.withValues(alpha: 0.4),
+      hintColor: ext.textSecondary,
+      disabledColor: ext.textTertiary,
+
+      // 输入框全局样式 —— 确保边框/光标跟随色系
+      inputDecorationTheme: InputDecorationTheme(
+        contentPadding: const EdgeInsets.symmetric(
+            horizontal: AppDimensions.spaceMD, vertical: AppDimensions.spaceSM),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppDimensions.radiusSM),
+          borderSide: BorderSide(color: ext.textTertiary, width: 1),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppDimensions.radiusSM),
+          borderSide: BorderSide(
+              color: ext.textTertiary.withValues(alpha: 0.4), width: 1),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppDimensions.radiusSM),
+          borderSide: BorderSide(color: primary, width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppDimensions.radiusSM),
+          borderSide: BorderSide(color: ext.warning, width: 1),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppDimensions.radiusSM),
+          borderSide: BorderSide(color: ext.warning, width: 1.5),
+        ),
+        labelStyle: AppTypography.body2.copyWith(color: ext.textSecondary),
+        hintStyle: AppTypography.body2.copyWith(color: ext.textSecondary),
       ),
     );
   }

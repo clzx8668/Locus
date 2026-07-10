@@ -9,18 +9,23 @@ class SettingsService extends ChangeNotifier {
   static const _keyLightColorTheme = 'light_color_theme';
   static const _keyDarkColorTheme = 'dark_color_theme';
   static const _keyFontScale = 'font_scale';
+  static const _keyBlockColors = 'block_colors';
 
   // --- 状态 ---
   ThemeMode _themeMode = ThemeMode.system;
   AppThemeStyle _lightColorTheme = AppThemeStyle.light;
   AppThemeStyle _darkColorTheme = AppThemeStyle.dark;
   double _fontScale = 1.0;
+  List<int>? _blockColors;
 
   // --- Getters ---
   ThemeMode get themeMode => _themeMode;
   AppThemeStyle get lightColorTheme => _lightColorTheme;
   AppThemeStyle get darkColorTheme => _darkColorTheme;
   double get fontScale => _fontScale;
+
+  /// 内容块背景颜色列表（每项为 0xAARRGGBB 格式的 int），null 使用默认色
+  List<int>? get blockColors => _blockColors;
 
   /// 当前激活的主题色系（根据当前明暗模式）
   AppThemeStyle get effectiveColorTheme {
@@ -68,6 +73,12 @@ class SettingsService extends ChangeNotifier {
         return '极地灰蓝';
       case AppThemeStyle.warmOatmeal:
         return '燕麦暖沙';
+      case AppThemeStyle.roseBlush:
+        return '玫瑰绯';
+      case AppThemeStyle.lavenderPurple:
+        return '薰衣草紫';
+      case AppThemeStyle.matchaGreen:
+        return '抹茶绿';
     }
   }
 
@@ -80,6 +91,11 @@ class SettingsService extends ChangeNotifier {
     _darkColorTheme =
         _parseColorTheme(_prefs!.getString(_keyDarkColorTheme), true);
     _fontScale = _prefs!.getDouble(_keyFontScale) ?? 1.0;
+    _blockColors = _prefs!
+        .getStringList(_keyBlockColors)
+        ?.map((e) => int.tryParse(e))
+        .whereType<int>()
+        .toList();
     notifyListeners();
   }
 
@@ -109,6 +125,18 @@ class SettingsService extends ChangeNotifier {
     if ((_fontScale - scale).abs() < 0.01) return;
     _fontScale = scale;
     await _prefs?.setDouble(_keyFontScale, scale);
+    notifyListeners();
+  }
+
+  /// 设置内容块背景颜色配置
+  Future<void> setBlockColors(List<int>? colors) async {
+    _blockColors = colors;
+    if (colors == null) {
+      await _prefs?.remove(_keyBlockColors);
+    } else {
+      await _prefs?.setStringList(
+          _keyBlockColors, colors.map((c) => c.toString()).toList());
+    }
     notifyListeners();
   }
 

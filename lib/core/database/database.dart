@@ -20,6 +20,8 @@ class HubPayloads extends Table {
 
   TextColumn get intentTag => text().withDefault(const Constant('NOTE'))();
 
+  TextColumn get title => text().nullable()();
+
   IntColumn get syncStatus => integer().withDefault(const Constant(0))();
 
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
@@ -134,6 +136,9 @@ class ContentBlocks extends Table {
 
   IntColumn get sortOrder => integer().withDefault(const Constant(0))();
 
+  /// 该内容块独立关联的标签，JSON 数组格式如 ["#标签1","#标签2"]
+  TextColumn get tags => text().withDefault(const Constant('[]'))();
+
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -166,7 +171,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration {
@@ -207,6 +212,15 @@ class AppDatabase extends _$AppDatabase {
           await m.createTable(contentBlocks);
           await m.createTable(aiConversations);
         }
+        // v8 → v9: 新增 HubPayloads.title + ContentBlocks.tags 列
+        if (from <= 8) {
+          await customStatement(
+            'ALTER TABLE hub_payloads ADD COLUMN title TEXT',
+          );
+          await customStatement(
+            'ALTER TABLE content_blocks ADD COLUMN tags TEXT NOT NULL DEFAULT \'[]\'',
+          );
+        }
       },
       beforeOpen: (details) async {
         await customStatement('PRAGMA foreign_keys = ON');
@@ -224,6 +238,13 @@ class AppDatabase extends _$AppDatabase {
         rawText: Value(rawText),
         intentTag: Value(intentTag),
       ),
+    );
+  }
+
+  /// 更新 payload 的标题
+  Future<void> updatePayloadTitle(int id, String? title) {
+    return (update(hubPayloads)..where((t) => t.id.equals(id))).write(
+      HubPayloadsCompanion(title: Value(title)),
     );
   }
 
@@ -298,6 +319,11 @@ class AppDatabase extends _$AppDatabase {
         .watch();
   }
 
+  /// 监听某条闪念的内容块数量变化
+  Stream<int> watchBlockCountForPayload(int payloadId) {
+    return watchBlocksForPayload(payloadId).map((blocks) => blocks.length);
+  }
+
   Future<int> insertBlock(
       int payloadId, String blockType, String content, String mediaPaths,
       [String sourceType = 'manual']) {
@@ -316,6 +342,13 @@ class AppDatabase extends _$AppDatabase {
     return (update(contentBlocks)..where((t) => t.id.equals(blockId))).write(
       ContentBlocksCompanion(
           content: Value(content), mediaPaths: Value(mediaPaths)),
+    );
+  }
+
+  /// 更新内容块的标签
+  Future<void> updateBlockTags(int blockId, String tags) {
+    return (update(contentBlocks)..where((t) => t.id.equals(blockId))).write(
+      ContentBlocksCompanion(tags: Value(tags)),
     );
   }
 

@@ -40,6 +40,11 @@ class $HubPayloadsTable extends HubPayloads
       type: DriftSqlType.string,
       requiredDuringInsert: false,
       defaultValue: const Constant('NOTE'));
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+      'title', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
   static const VerificationMeta _syncStatusMeta =
       const VerificationMeta('syncStatus');
   @override
@@ -58,7 +63,7 @@ class $HubPayloadsTable extends HubPayloads
       defaultValue: currentDateAndTime);
   @override
   List<GeneratedColumn> get $columns =>
-      [id, rawText, mediaPaths, intentTag, syncStatus, createdAt];
+      [id, rawText, mediaPaths, intentTag, title, syncStatus, createdAt];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -88,6 +93,10 @@ class $HubPayloadsTable extends HubPayloads
       context.handle(_intentTagMeta,
           intentTag.isAcceptableOrUnknown(data['intent_tag']!, _intentTagMeta));
     }
+    if (data.containsKey('title')) {
+      context.handle(
+          _titleMeta, title.isAcceptableOrUnknown(data['title']!, _titleMeta));
+    }
     if (data.containsKey('sync_status')) {
       context.handle(
           _syncStatusMeta,
@@ -115,6 +124,8 @@ class $HubPayloadsTable extends HubPayloads
           .read(DriftSqlType.string, data['${effectivePrefix}media_paths'])!,
       intentTag: attachedDatabase.typeMapping
           .read(DriftSqlType.string, data['${effectivePrefix}intent_tag'])!,
+      title: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}title']),
       syncStatus: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}sync_status'])!,
       createdAt: attachedDatabase.typeMapping
@@ -133,6 +144,7 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
   final String rawText;
   final String mediaPaths;
   final String intentTag;
+  final String? title;
   final int syncStatus;
   final DateTime createdAt;
   const HubPayload(
@@ -140,6 +152,7 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
       required this.rawText,
       required this.mediaPaths,
       required this.intentTag,
+      this.title,
       required this.syncStatus,
       required this.createdAt});
   @override
@@ -149,6 +162,9 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
     map['raw_text'] = Variable<String>(rawText);
     map['media_paths'] = Variable<String>(mediaPaths);
     map['intent_tag'] = Variable<String>(intentTag);
+    if (!nullToAbsent || title != null) {
+      map['title'] = Variable<String>(title);
+    }
     map['sync_status'] = Variable<int>(syncStatus);
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
@@ -160,6 +176,8 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
       rawText: Value(rawText),
       mediaPaths: Value(mediaPaths),
       intentTag: Value(intentTag),
+      title:
+          title == null && nullToAbsent ? const Value.absent() : Value(title),
       syncStatus: Value(syncStatus),
       createdAt: Value(createdAt),
     );
@@ -173,6 +191,7 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
       rawText: serializer.fromJson<String>(json['rawText']),
       mediaPaths: serializer.fromJson<String>(json['mediaPaths']),
       intentTag: serializer.fromJson<String>(json['intentTag']),
+      title: serializer.fromJson<String?>(json['title']),
       syncStatus: serializer.fromJson<int>(json['syncStatus']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
@@ -185,6 +204,7 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
       'rawText': serializer.toJson<String>(rawText),
       'mediaPaths': serializer.toJson<String>(mediaPaths),
       'intentTag': serializer.toJson<String>(intentTag),
+      'title': serializer.toJson<String?>(title),
       'syncStatus': serializer.toJson<int>(syncStatus),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
@@ -195,6 +215,7 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
           String? rawText,
           String? mediaPaths,
           String? intentTag,
+          Value<String?> title = const Value.absent(),
           int? syncStatus,
           DateTime? createdAt}) =>
       HubPayload(
@@ -202,6 +223,7 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
         rawText: rawText ?? this.rawText,
         mediaPaths: mediaPaths ?? this.mediaPaths,
         intentTag: intentTag ?? this.intentTag,
+        title: title.present ? title.value : this.title,
         syncStatus: syncStatus ?? this.syncStatus,
         createdAt: createdAt ?? this.createdAt,
       );
@@ -212,6 +234,7 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
       mediaPaths:
           data.mediaPaths.present ? data.mediaPaths.value : this.mediaPaths,
       intentTag: data.intentTag.present ? data.intentTag.value : this.intentTag,
+      title: data.title.present ? data.title.value : this.title,
       syncStatus:
           data.syncStatus.present ? data.syncStatus.value : this.syncStatus,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
@@ -225,6 +248,7 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
           ..write('rawText: $rawText, ')
           ..write('mediaPaths: $mediaPaths, ')
           ..write('intentTag: $intentTag, ')
+          ..write('title: $title, ')
           ..write('syncStatus: $syncStatus, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
@@ -232,8 +256,8 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
   }
 
   @override
-  int get hashCode =>
-      Object.hash(id, rawText, mediaPaths, intentTag, syncStatus, createdAt);
+  int get hashCode => Object.hash(
+      id, rawText, mediaPaths, intentTag, title, syncStatus, createdAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -242,6 +266,7 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
           other.rawText == this.rawText &&
           other.mediaPaths == this.mediaPaths &&
           other.intentTag == this.intentTag &&
+          other.title == this.title &&
           other.syncStatus == this.syncStatus &&
           other.createdAt == this.createdAt);
 }
@@ -251,6 +276,7 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
   final Value<String> rawText;
   final Value<String> mediaPaths;
   final Value<String> intentTag;
+  final Value<String?> title;
   final Value<int> syncStatus;
   final Value<DateTime> createdAt;
   const HubPayloadsCompanion({
@@ -258,6 +284,7 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
     this.rawText = const Value.absent(),
     this.mediaPaths = const Value.absent(),
     this.intentTag = const Value.absent(),
+    this.title = const Value.absent(),
     this.syncStatus = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
@@ -266,6 +293,7 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
     required String rawText,
     this.mediaPaths = const Value.absent(),
     this.intentTag = const Value.absent(),
+    this.title = const Value.absent(),
     this.syncStatus = const Value.absent(),
     this.createdAt = const Value.absent(),
   }) : rawText = Value(rawText);
@@ -274,6 +302,7 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
     Expression<String>? rawText,
     Expression<String>? mediaPaths,
     Expression<String>? intentTag,
+    Expression<String>? title,
     Expression<int>? syncStatus,
     Expression<DateTime>? createdAt,
   }) {
@@ -282,6 +311,7 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
       if (rawText != null) 'raw_text': rawText,
       if (mediaPaths != null) 'media_paths': mediaPaths,
       if (intentTag != null) 'intent_tag': intentTag,
+      if (title != null) 'title': title,
       if (syncStatus != null) 'sync_status': syncStatus,
       if (createdAt != null) 'created_at': createdAt,
     });
@@ -292,6 +322,7 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
       Value<String>? rawText,
       Value<String>? mediaPaths,
       Value<String>? intentTag,
+      Value<String?>? title,
       Value<int>? syncStatus,
       Value<DateTime>? createdAt}) {
     return HubPayloadsCompanion(
@@ -299,6 +330,7 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
       rawText: rawText ?? this.rawText,
       mediaPaths: mediaPaths ?? this.mediaPaths,
       intentTag: intentTag ?? this.intentTag,
+      title: title ?? this.title,
       syncStatus: syncStatus ?? this.syncStatus,
       createdAt: createdAt ?? this.createdAt,
     );
@@ -319,6 +351,9 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
     if (intentTag.present) {
       map['intent_tag'] = Variable<String>(intentTag.value);
     }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
     if (syncStatus.present) {
       map['sync_status'] = Variable<int>(syncStatus.value);
     }
@@ -335,6 +370,7 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
           ..write('rawText: $rawText, ')
           ..write('mediaPaths: $mediaPaths, ')
           ..write('intentTag: $intentTag, ')
+          ..write('title: $title, ')
           ..write('syncStatus: $syncStatus, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
@@ -2202,6 +2238,13 @@ class $ContentBlocksTable extends ContentBlocks
       type: DriftSqlType.int,
       requiredDuringInsert: false,
       defaultValue: const Constant(0));
+  static const VerificationMeta _tagsMeta = const VerificationMeta('tags');
+  @override
+  late final GeneratedColumn<String> tags = GeneratedColumn<String>(
+      'tags', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('[]'));
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -2220,6 +2263,7 @@ class $ContentBlocksTable extends ContentBlocks
         sourceType,
         aiPolished,
         sortOrder,
+        tags,
         createdAt
       ];
   @override
@@ -2273,6 +2317,10 @@ class $ContentBlocksTable extends ContentBlocks
       context.handle(_sortOrderMeta,
           sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta));
     }
+    if (data.containsKey('tags')) {
+      context.handle(
+          _tagsMeta, tags.isAcceptableOrUnknown(data['tags']!, _tagsMeta));
+    }
     if (data.containsKey('created_at')) {
       context.handle(_createdAtMeta,
           createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
@@ -2302,6 +2350,8 @@ class $ContentBlocksTable extends ContentBlocks
           .read(DriftSqlType.bool, data['${effectivePrefix}ai_polished'])!,
       sortOrder: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}sort_order'])!,
+      tags: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}tags'])!,
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
     );
@@ -2322,6 +2372,9 @@ class ContentBlock extends DataClass implements Insertable<ContentBlock> {
   final String sourceType;
   final bool aiPolished;
   final int sortOrder;
+
+  /// 该内容块独立关联的标签，JSON 数组格式如 ["#标签1","#标签2"]
+  final String tags;
   final DateTime createdAt;
   const ContentBlock(
       {required this.id,
@@ -2332,6 +2385,7 @@ class ContentBlock extends DataClass implements Insertable<ContentBlock> {
       required this.sourceType,
       required this.aiPolished,
       required this.sortOrder,
+      required this.tags,
       required this.createdAt});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2344,6 +2398,7 @@ class ContentBlock extends DataClass implements Insertable<ContentBlock> {
     map['source_type'] = Variable<String>(sourceType);
     map['ai_polished'] = Variable<bool>(aiPolished);
     map['sort_order'] = Variable<int>(sortOrder);
+    map['tags'] = Variable<String>(tags);
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
   }
@@ -2358,6 +2413,7 @@ class ContentBlock extends DataClass implements Insertable<ContentBlock> {
       sourceType: Value(sourceType),
       aiPolished: Value(aiPolished),
       sortOrder: Value(sortOrder),
+      tags: Value(tags),
       createdAt: Value(createdAt),
     );
   }
@@ -2374,6 +2430,7 @@ class ContentBlock extends DataClass implements Insertable<ContentBlock> {
       sourceType: serializer.fromJson<String>(json['sourceType']),
       aiPolished: serializer.fromJson<bool>(json['aiPolished']),
       sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      tags: serializer.fromJson<String>(json['tags']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
   }
@@ -2389,6 +2446,7 @@ class ContentBlock extends DataClass implements Insertable<ContentBlock> {
       'sourceType': serializer.toJson<String>(sourceType),
       'aiPolished': serializer.toJson<bool>(aiPolished),
       'sortOrder': serializer.toJson<int>(sortOrder),
+      'tags': serializer.toJson<String>(tags),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
   }
@@ -2402,6 +2460,7 @@ class ContentBlock extends DataClass implements Insertable<ContentBlock> {
           String? sourceType,
           bool? aiPolished,
           int? sortOrder,
+          String? tags,
           DateTime? createdAt}) =>
       ContentBlock(
         id: id ?? this.id,
@@ -2412,6 +2471,7 @@ class ContentBlock extends DataClass implements Insertable<ContentBlock> {
         sourceType: sourceType ?? this.sourceType,
         aiPolished: aiPolished ?? this.aiPolished,
         sortOrder: sortOrder ?? this.sortOrder,
+        tags: tags ?? this.tags,
         createdAt: createdAt ?? this.createdAt,
       );
   ContentBlock copyWithCompanion(ContentBlocksCompanion data) {
@@ -2427,6 +2487,7 @@ class ContentBlock extends DataClass implements Insertable<ContentBlock> {
       aiPolished:
           data.aiPolished.present ? data.aiPolished.value : this.aiPolished,
       sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      tags: data.tags.present ? data.tags.value : this.tags,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -2442,6 +2503,7 @@ class ContentBlock extends DataClass implements Insertable<ContentBlock> {
           ..write('sourceType: $sourceType, ')
           ..write('aiPolished: $aiPolished, ')
           ..write('sortOrder: $sortOrder, ')
+          ..write('tags: $tags, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -2449,7 +2511,7 @@ class ContentBlock extends DataClass implements Insertable<ContentBlock> {
 
   @override
   int get hashCode => Object.hash(id, payloadId, blockType, content, mediaPaths,
-      sourceType, aiPolished, sortOrder, createdAt);
+      sourceType, aiPolished, sortOrder, tags, createdAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -2462,6 +2524,7 @@ class ContentBlock extends DataClass implements Insertable<ContentBlock> {
           other.sourceType == this.sourceType &&
           other.aiPolished == this.aiPolished &&
           other.sortOrder == this.sortOrder &&
+          other.tags == this.tags &&
           other.createdAt == this.createdAt);
 }
 
@@ -2474,6 +2537,7 @@ class ContentBlocksCompanion extends UpdateCompanion<ContentBlock> {
   final Value<String> sourceType;
   final Value<bool> aiPolished;
   final Value<int> sortOrder;
+  final Value<String> tags;
   final Value<DateTime> createdAt;
   const ContentBlocksCompanion({
     this.id = const Value.absent(),
@@ -2484,6 +2548,7 @@ class ContentBlocksCompanion extends UpdateCompanion<ContentBlock> {
     this.sourceType = const Value.absent(),
     this.aiPolished = const Value.absent(),
     this.sortOrder = const Value.absent(),
+    this.tags = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
   ContentBlocksCompanion.insert({
@@ -2495,6 +2560,7 @@ class ContentBlocksCompanion extends UpdateCompanion<ContentBlock> {
     this.sourceType = const Value.absent(),
     this.aiPolished = const Value.absent(),
     this.sortOrder = const Value.absent(),
+    this.tags = const Value.absent(),
     this.createdAt = const Value.absent(),
   })  : payloadId = Value(payloadId),
         content = Value(content);
@@ -2507,6 +2573,7 @@ class ContentBlocksCompanion extends UpdateCompanion<ContentBlock> {
     Expression<String>? sourceType,
     Expression<bool>? aiPolished,
     Expression<int>? sortOrder,
+    Expression<String>? tags,
     Expression<DateTime>? createdAt,
   }) {
     return RawValuesInsertable({
@@ -2518,6 +2585,7 @@ class ContentBlocksCompanion extends UpdateCompanion<ContentBlock> {
       if (sourceType != null) 'source_type': sourceType,
       if (aiPolished != null) 'ai_polished': aiPolished,
       if (sortOrder != null) 'sort_order': sortOrder,
+      if (tags != null) 'tags': tags,
       if (createdAt != null) 'created_at': createdAt,
     });
   }
@@ -2531,6 +2599,7 @@ class ContentBlocksCompanion extends UpdateCompanion<ContentBlock> {
       Value<String>? sourceType,
       Value<bool>? aiPolished,
       Value<int>? sortOrder,
+      Value<String>? tags,
       Value<DateTime>? createdAt}) {
     return ContentBlocksCompanion(
       id: id ?? this.id,
@@ -2541,6 +2610,7 @@ class ContentBlocksCompanion extends UpdateCompanion<ContentBlock> {
       sourceType: sourceType ?? this.sourceType,
       aiPolished: aiPolished ?? this.aiPolished,
       sortOrder: sortOrder ?? this.sortOrder,
+      tags: tags ?? this.tags,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -2572,6 +2642,9 @@ class ContentBlocksCompanion extends UpdateCompanion<ContentBlock> {
     if (sortOrder.present) {
       map['sort_order'] = Variable<int>(sortOrder.value);
     }
+    if (tags.present) {
+      map['tags'] = Variable<String>(tags.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -2589,6 +2662,7 @@ class ContentBlocksCompanion extends UpdateCompanion<ContentBlock> {
           ..write('sourceType: $sourceType, ')
           ..write('aiPolished: $aiPolished, ')
           ..write('sortOrder: $sortOrder, ')
+          ..write('tags: $tags, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -2932,6 +3006,7 @@ typedef $$HubPayloadsTableCreateCompanionBuilder = HubPayloadsCompanion
   required String rawText,
   Value<String> mediaPaths,
   Value<String> intentTag,
+  Value<String?> title,
   Value<int> syncStatus,
   Value<DateTime> createdAt,
 });
@@ -2941,6 +3016,7 @@ typedef $$HubPayloadsTableUpdateCompanionBuilder = HubPayloadsCompanion
   Value<String> rawText,
   Value<String> mediaPaths,
   Value<String> intentTag,
+  Value<String?> title,
   Value<int> syncStatus,
   Value<DateTime> createdAt,
 });
@@ -3017,6 +3093,9 @@ class $$HubPayloadsTableFilterComposer
 
   ColumnFilters<String> get intentTag => $composableBuilder(
       column: $table.intentTag, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get title => $composableBuilder(
+      column: $table.title, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<int> get syncStatus => $composableBuilder(
       column: $table.syncStatus, builder: (column) => ColumnFilters(column));
@@ -3109,6 +3188,9 @@ class $$HubPayloadsTableOrderingComposer
   ColumnOrderings<String> get intentTag => $composableBuilder(
       column: $table.intentTag, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get title => $composableBuilder(
+      column: $table.title, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<int> get syncStatus => $composableBuilder(
       column: $table.syncStatus, builder: (column) => ColumnOrderings(column));
 
@@ -3136,6 +3218,9 @@ class $$HubPayloadsTableAnnotationComposer
 
   GeneratedColumn<String> get intentTag =>
       $composableBuilder(column: $table.intentTag, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
 
   GeneratedColumn<int> get syncStatus => $composableBuilder(
       column: $table.syncStatus, builder: (column) => column);
@@ -3237,6 +3322,7 @@ class $$HubPayloadsTableTableManager extends RootTableManager<
             Value<String> rawText = const Value.absent(),
             Value<String> mediaPaths = const Value.absent(),
             Value<String> intentTag = const Value.absent(),
+            Value<String?> title = const Value.absent(),
             Value<int> syncStatus = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
           }) =>
@@ -3245,6 +3331,7 @@ class $$HubPayloadsTableTableManager extends RootTableManager<
             rawText: rawText,
             mediaPaths: mediaPaths,
             intentTag: intentTag,
+            title: title,
             syncStatus: syncStatus,
             createdAt: createdAt,
           ),
@@ -3253,6 +3340,7 @@ class $$HubPayloadsTableTableManager extends RootTableManager<
             required String rawText,
             Value<String> mediaPaths = const Value.absent(),
             Value<String> intentTag = const Value.absent(),
+            Value<String?> title = const Value.absent(),
             Value<int> syncStatus = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
           }) =>
@@ -3261,6 +3349,7 @@ class $$HubPayloadsTableTableManager extends RootTableManager<
             rawText: rawText,
             mediaPaths: mediaPaths,
             intentTag: intentTag,
+            title: title,
             syncStatus: syncStatus,
             createdAt: createdAt,
           ),
@@ -4824,6 +4913,7 @@ typedef $$ContentBlocksTableCreateCompanionBuilder = ContentBlocksCompanion
   Value<String> sourceType,
   Value<bool> aiPolished,
   Value<int> sortOrder,
+  Value<String> tags,
   Value<DateTime> createdAt,
 });
 typedef $$ContentBlocksTableUpdateCompanionBuilder = ContentBlocksCompanion
@@ -4836,6 +4926,7 @@ typedef $$ContentBlocksTableUpdateCompanionBuilder = ContentBlocksCompanion
   Value<String> sourceType,
   Value<bool> aiPolished,
   Value<int> sortOrder,
+  Value<String> tags,
   Value<DateTime> createdAt,
 });
 
@@ -4888,6 +4979,9 @@ class $$ContentBlocksTableFilterComposer
 
   ColumnFilters<int> get sortOrder => $composableBuilder(
       column: $table.sortOrder, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get tags => $composableBuilder(
+      column: $table.tags, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnFilters(column));
@@ -4943,6 +5037,9 @@ class $$ContentBlocksTableOrderingComposer
   ColumnOrderings<int> get sortOrder => $composableBuilder(
       column: $table.sortOrder, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get tags => $composableBuilder(
+      column: $table.tags, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnOrderings(column));
 
@@ -4996,6 +5093,9 @@ class $$ContentBlocksTableAnnotationComposer
 
   GeneratedColumn<int> get sortOrder =>
       $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<String> get tags =>
+      $composableBuilder(column: $table.tags, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -5052,6 +5152,7 @@ class $$ContentBlocksTableTableManager extends RootTableManager<
             Value<String> sourceType = const Value.absent(),
             Value<bool> aiPolished = const Value.absent(),
             Value<int> sortOrder = const Value.absent(),
+            Value<String> tags = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
           }) =>
               ContentBlocksCompanion(
@@ -5063,6 +5164,7 @@ class $$ContentBlocksTableTableManager extends RootTableManager<
             sourceType: sourceType,
             aiPolished: aiPolished,
             sortOrder: sortOrder,
+            tags: tags,
             createdAt: createdAt,
           ),
           createCompanionCallback: ({
@@ -5074,6 +5176,7 @@ class $$ContentBlocksTableTableManager extends RootTableManager<
             Value<String> sourceType = const Value.absent(),
             Value<bool> aiPolished = const Value.absent(),
             Value<int> sortOrder = const Value.absent(),
+            Value<String> tags = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
           }) =>
               ContentBlocksCompanion.insert(
@@ -5085,6 +5188,7 @@ class $$ContentBlocksTableTableManager extends RootTableManager<
             sourceType: sourceType,
             aiPolished: aiPolished,
             sortOrder: sortOrder,
+            tags: tags,
             createdAt: createdAt,
           ),
           withReferenceMapper: (p0) => p0

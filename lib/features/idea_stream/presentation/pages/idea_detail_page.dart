@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/di/service_locator.dart';
 import '../../../../core/database/database.dart';
 import '../../../../core/services/ai_engine.dart';
+import '../../../../core/theme/design_system.dart';
 import '../../data/idea_repository.dart';
 import '../widgets/content_block_editor.dart';
 import '../widgets/full_block_editor.dart';
@@ -21,8 +22,6 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   final _repo = getIt<IdeaRepository>();
   final _ai = getIt<AiEngine>();
 
-  late List<String> _tags;
-
   final TextEditingController _newTaskController = TextEditingController();
   bool _isEnteringTask = false;
 
@@ -31,18 +30,21 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   bool _isAiWorking = false;
   String _activeAiAction = '';
 
+  late String _currentTitle;
+
+  late final Stream<List<ContentBlock>> _blocksStream;
+  late final Stream<List<AiConversation>> _conversationsStream;
+  late final Stream<List<IdeaTask>> _tasksStream;
+
   @override
   void initState() {
     super.initState();
-    _tags = widget.payload.intentTag.isNotEmpty
-        ? widget.payload.intentTag
-            .split(' ')
-            .where((t) => t.trim().isNotEmpty)
-            .toList()
-        : ['#闪念'];
-
+    _blocksStream = _repo.watchBlocks(widget.payload.id);
+    _conversationsStream = _repo.watchConversations(widget.payload.id);
+    _tasksStream = _repo.watchTasks(widget.payload.id);
     _initContentBlocks();
     _initAiConversations();
+    _initTitle();
   }
 
   /// 初始化内容块：如果 DB 中没有块，将 payload.rawText 作为第一个块写入
@@ -55,6 +57,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     // 这里用一次查询判断
     try {
       _repo.watchBlocks(widget.payload.id).first.then((blocks) {
+        if (!mounted) return;
         if (blocks.isEmpty && widget.payload.rawText.isNotEmpty) {
           _repo.addBlock(
             widget.payload.id,
@@ -76,16 +79,108 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     // 数据库表新建时不需要特别初始化
   }
 
+  void _initTitle() {
+    final payloadTitle = widget.payload.title;
+    if (payloadTitle != null && payloadTitle.isNotEmpty) {
+      _currentTitle = payloadTitle;
+    } else {
+      // 标题为空时，延迟从首块内容自动提取
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (!mounted) return;
+        _repo.watchBlocks(widget.payload.id).first.then((blocks) {
+          if (!mounted) return;
+          if (blocks.isNotEmpty && blocks.first.content.isNotEmpty) {
+            final text = blocks.first.content;
+            final firstLine = text.split('\n').first.trim();
+            if (firstLine.isEmpty) {
+              _currentTitle = '';
+              return;
+            }
+            // 去除 Markdown 标题标记
+            final cleanTitle =
+                firstLine.replaceFirst(RegExp(r'^#{1,3}\s+'), '');
+            _currentTitle = cleanTitle.length > 30
+                ? '${cleanTitle.substring(0, 30)}...'
+                : cleanTitle;
+            // 写入数据库
+            _repo.updateTitle(widget.payload.id, _currentTitle);
+            if (mounted) setState(() {});
+          }
+        });
+      });
+      _currentTitle = widget.payload.title ?? '';
+    }
+  }
+
+  void _confirmDelete() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认删除'),
+        content: const Text('删除后将无法恢复，确定要删除这条闪念吗？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child:
+                  const Text('删除', style: TextStyle(color: Colors.redAccent))),
+        ],
+      ),
+    );
+    if (confirm == true && mounted) {
+      await _repo.delete(widget.payload.id);
+      if (mounted) Navigator.pop(context);
+    }
+  }
+
+  void _showEditTitleDialog(bool isDark) {
+    final controller = TextEditingController(text: _currentTitle);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('修改标题'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '输入标题'),
+          maxLength: 100,
+          onSubmitted: (val) {
+            final newTitle = val.trim();
+            _currentTitle = newTitle.isEmpty ? '' : newTitle;
+            _repo.updateTitle(
+                widget.payload.id, newTitle.isEmpty ? null : newTitle);
+            setState(() {});
+            Navigator.pop(ctx);
+          },
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(
+            onPressed: () {
+              final newTitle = controller.text.trim();
+              _currentTitle = newTitle.isEmpty ? '' : newTitle;
+              _repo.updateTitle(
+                  widget.payload.id, newTitle.isEmpty ? null : newTitle);
+              setState(() {});
+              Navigator.pop(ctx);
+            },
+            style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6B6B)),
+            child: const Text('确定', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _newTaskController.dispose();
     _aiInputController.dispose();
     super.dispose();
-  }
-
-  void _saveTags() {
-    final cleanTags = _tags.map((t) => t.startsWith('#') ? t : '#$t').join(' ');
-    _repo.update(widget.payload.id, widget.payload.rawText, cleanTags);
   }
 
   // ==================== 内容块操作 ====================
@@ -107,12 +202,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         result.content,
         result.mediaPaths,
       );
-      if (result.content.isNotEmpty) {
-        final preview = result.content.length > 200
-            ? '${result.content.substring(0, 200)}...'
-            : result.content;
-        _repo.update(widget.payload.id, preview, widget.payload.intentTag);
-      }
+      // 不再覆盖摘要 — 保持首块生成的摘要不变
     }
   }
 
@@ -286,6 +376,8 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                 }).toList(),
               ),
             ],
+            // ===== 每块独立标签区域 =====
+            _buildBlockTagSection(block, theme, isDark),
           ],
         ),
       ),
@@ -304,10 +396,118 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
       ),
     );
 
+    if (!mounted) return;
     if (result != null) {
       await _repo.updateBlockContent(
           block.id, result.content, result.mediaPaths);
+      // 仅当编辑的是首块（sortOrder 最小）时同步更新卡片摘要
+      final blocks = await _repo.watchBlocks(widget.payload.id).first;
+      if (blocks.isNotEmpty && blocks.first.id == block.id) {
+        final preview = result.content.length > 200
+            ? '${result.content.substring(0, 200)}...'
+            : result.content;
+        _repo.update(widget.payload.id, preview, widget.payload.intentTag);
+      }
     }
+  }
+
+  // ==================== 块内标签 ====================
+
+  Widget _buildBlockTagSection(
+      ContentBlock block, ThemeData theme, bool isDark) {
+    final tags = _parseTags(block.tags);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 4,
+          children: [
+            ...tags.map((tag) {
+              final displayTag = tag.startsWith('#') ? tag : '#$tag';
+              return InputChip(
+                label: Text(displayTag, style: const TextStyle(fontSize: 11)),
+                deleteIcon: const Icon(Icons.close_rounded,
+                    size: 12, color: Colors.grey),
+                onDeleted: () {
+                  final updated = List<String>.from(tags)..remove(tag);
+                  _repo.updateBlockTags(block.id, updated);
+                },
+                backgroundColor:
+                    const Color(0xFFFF6B6B).withValues(alpha: 0.06),
+                labelStyle: const TextStyle(
+                    color: Color(0xFFFF6B6B),
+                    fontWeight: FontWeight.w500,
+                    fontSize: 11),
+                side: BorderSide.none,
+                padding: const EdgeInsets.symmetric(horizontal: 3),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+              );
+            }),
+            ActionChip(
+              label: const Text('+ 标签', style: TextStyle(fontSize: 11)),
+              onPressed: () => _showBlockTagDialog(block, tags),
+              backgroundColor:
+                  isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
+              side: BorderSide.none,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  void _showBlockTagDialog(ContentBlock block, List<String> currentTags) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('添加标签'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '输入标签名'),
+          onSubmitted: (val) {
+            final tag = val.trim();
+            if (tag.isNotEmpty) {
+              final cleanTag = tag.startsWith('#') ? tag : '#$tag';
+              final updated = List<String>.from(currentTags);
+              if (!updated.contains(cleanTag)) {
+                updated.add(cleanTag);
+              }
+              _repo.updateBlockTags(block.id, updated);
+              Navigator.pop(ctx);
+            }
+          },
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          FilledButton(
+            onPressed: () {
+              final tag = controller.text.trim();
+              if (tag.isNotEmpty) {
+                final cleanTag = tag.startsWith('#') ? tag : '#$tag';
+                final updated = List<String>.from(currentTags);
+                if (!updated.contains(cleanTag)) {
+                  updated.add(cleanTag);
+                }
+                _repo.updateBlockTags(block.id, updated);
+                Navigator.pop(ctx);
+              }
+            },
+            style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6B6B)),
+            child: const Text('确定', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   // ==================== 主构建 ====================
@@ -325,39 +525,32 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         elevation: 0,
         scrolledUnderElevation: 0,
         toolbarHeight: 46,
-        title: Text('工作台卡片 #${widget.payload.id}',
-            style: TextStyle(
-                fontWeight: FontWeight.w500,
-                fontSize: 14,
-                color: theme.textTheme.bodyMedium?.color)),
+        centerTitle: true,
+        title: Text(_currentTitle.isEmpty ? '未命名' : _currentTitle,
+            style: AppTypography.h3
+                .copyWith(color: theme.textTheme.bodyMedium?.color)),
         leading: IconButton(
           icon: const Icon(Icons.chevron_left_rounded, size: 22),
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.delete_outline_rounded, size: 18),
-            color: Colors.grey[400],
-            onPressed: () async {
-              final confirm = await showDialog<bool>(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('确认删除'),
-                  content: const Text('删除后将无法恢复，确定要删除这条闪念吗？'),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.pop(ctx, false),
-                        child: const Text('取消')),
-                    TextButton(
-                        onPressed: () => Navigator.pop(ctx, true),
-                        child: const Text('删除',
-                            style: TextStyle(color: Colors.redAccent))),
-                  ],
-                ),
-              );
-              if (confirm == true && mounted) {
-                await _repo.delete(widget.payload.id);
-                if (mounted) Navigator.pop(context);
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_horiz_rounded, size: 18),
+            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+            itemBuilder: (ctx) => [
+              const PopupMenuItem(
+                  value: 'edit_title',
+                  child: Text('修改标题', style: TextStyle(fontSize: 13))),
+              const PopupMenuItem(
+                  value: 'delete',
+                  child: Text('删除此条',
+                      style: TextStyle(fontSize: 13, color: Colors.redAccent))),
+            ],
+            onSelected: (val) {
+              if (val == 'edit_title') {
+                _showEditTitleDialog(isDark);
+              } else if (val == 'delete') {
+                _confirmDelete();
               }
             },
           ),
@@ -369,13 +562,9 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ===== 标签区域 =====
-            _buildTagSection(theme, isDark),
-            const SizedBox(height: 14),
-
             // ===== 内容块区域 =====
             StreamBuilder<List<ContentBlock>>(
-              stream: _repo.watchBlocks(widget.payload.id),
+              stream: _blocksStream,
               builder: (context, snapshot) {
                 final blocks = snapshot.data ?? [];
 
@@ -416,88 +605,6 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             _buildTaskSection(theme, isDark),
           ],
         ),
-      ),
-    );
-  }
-
-  // ==================== 标签区域 ====================
-
-  Widget _buildTagSection(ThemeData theme, bool isDark) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        ..._tags.map((tag) {
-          return InputChip(
-            label: Text(tag, style: const TextStyle(fontSize: 12)),
-            deleteIcon:
-                const Icon(Icons.close_rounded, size: 14, color: Colors.grey),
-            onDeleted: () {
-              setState(() => _tags.remove(tag));
-              _saveTags();
-            },
-            backgroundColor: const Color(0xFFFF6B6B).withValues(alpha: 0.08),
-            labelStyle: const TextStyle(
-                color: Color(0xFFFF6B6B), fontWeight: FontWeight.w600),
-            side: BorderSide.none,
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-          );
-        }),
-        ActionChip(
-          label: const Text('+ 加标签', style: TextStyle(fontSize: 12)),
-          onPressed: () => _showAddTagDialog(context),
-          backgroundColor:
-              isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
-          side: BorderSide.none,
-        ),
-      ],
-    );
-  }
-
-  void _showAddTagDialog(BuildContext context) {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('添加标签'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: '输入标签名'),
-          onSubmitted: (val) {
-            final tag = val.trim();
-            if (tag.isNotEmpty) {
-              final cleanTag = tag.startsWith('#') ? tag : '#$tag';
-              setState(() {
-                if (!_tags.contains(cleanTag)) {
-                  _tags.add(cleanTag);
-                }
-              });
-              _saveTags();
-              Navigator.pop(ctx);
-            }
-          },
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          FilledButton(
-            onPressed: () {
-              final tag = controller.text.trim();
-              if (tag.isNotEmpty) {
-                final cleanTag = tag.startsWith('#') ? tag : '#$tag';
-                setState(() {
-                  if (!_tags.contains(cleanTag)) _tags.add(cleanTag);
-                });
-                _saveTags();
-                Navigator.pop(ctx);
-              }
-            },
-            style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFFF6B6B)),
-            child: const Text('确定', style: TextStyle(color: Colors.white)),
-          ),
-        ],
       ),
     );
   }
@@ -558,7 +665,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
 
         // 对话列表
         StreamBuilder<List<AiConversation>>(
-          stream: _repo.watchConversations(widget.payload.id),
+          stream: _conversationsStream,
           builder: (context, snapshot) {
             final conversations = snapshot.data ?? [];
 
@@ -672,9 +779,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFFBFBFB),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-            color: isDark ? const Color(0xFF333333) : const Color(0xFFE0E0E0),
-            width: 1),
+        border: Border.all(color: Theme.of(context).dividerColor, width: 1),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Row(
@@ -714,7 +819,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
 
   Widget _buildTaskSection(ThemeData theme, bool isDark) {
     return StreamBuilder<List<IdeaTask>>(
-      stream: _repo.watchTasks(widget.payload.id),
+      stream: _tasksStream,
       builder: (context, snapshot) {
         final tasks = snapshot.data ?? [];
         final doneCount = tasks.where((t) => t.isDone).length;
@@ -850,6 +955,14 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   List<String> _parseMediaPaths(String mediaPathsJson) {
     try {
       final decoded = jsonDecode(mediaPathsJson);
+      if (decoded is List) return decoded.cast<String>();
+    } catch (_) {}
+    return [];
+  }
+
+  List<String> _parseTags(String tagsJson) {
+    try {
+      final decoded = jsonDecode(tagsJson);
       if (decoded is List) return decoded.cast<String>();
     } catch (_) {}
     return [];

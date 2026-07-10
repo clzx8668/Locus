@@ -297,28 +297,40 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Locus 右脑', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-        backgroundColor: Colors.white,
+        title: Text('Locus 右脑',
+            style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: theme.textTheme.titleMedium?.color)),
+        backgroundColor: theme.cardColor,
+        surfaceTintColor: Colors.transparent,
         elevation: 0.5,
+        shadowColor: theme.shadowColor,
         centerTitle: true,
         actions: [
           // 🧠 金刚键 1：长久记忆与资料库
           IconButton(
-            icon: const Icon(Icons.memory_rounded, color: Colors.blueGrey, size: 24),
+            icon: Icon(Icons.memory_rounded,
+                color: theme.textTheme.bodyMedium?.color, size: 24),
             tooltip: '长久记忆与资料库',
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const LongTermMemoryPage()),
+                MaterialPageRoute(
+                    builder: (context) => const LongTermMemoryPage()),
               );
             },
           ),
           // 🔍 金刚键 2：历史对话与全局搜索
           IconButton(
-            icon: const Icon(Icons.search_rounded, color: Colors.black87, size: 24),
+            icon: Icon(Icons.search_rounded,
+                color: theme.textTheme.bodyMedium?.color, size: 24),
             tooltip: '搜索历史记录',
             onPressed: () async {
               final selectedSessionId = await Navigator.push<int>(
@@ -336,7 +348,8 @@ class _ChatPageState extends State<ChatPage> {
           ),
           // ✨ 金刚键 3：新建对话
           IconButton(
-            icon: const Icon(Icons.create_outlined, color: Colors.black87, size: 22),
+            icon: Icon(Icons.create_outlined,
+                color: theme.textTheme.bodyMedium?.color, size: 22),
             tooltip: '开启新对话',
             onPressed: _startNewConversation,
           ),
@@ -348,11 +361,12 @@ class _ChatPageState extends State<ChatPage> {
           Expanded(
             child: ListView.builder(
               controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
               itemCount: _messages.length,
               itemBuilder: (context, index) {
                 final msg = _messages[index];
-                return _buildMessageBubble(msg);
+                return _buildMessageBubble(msg, isDark);
               },
             ),
           ),
@@ -366,77 +380,115 @@ class _ChatPageState extends State<ChatPage> {
                     SizedBox(
                       width: 14,
                       height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blueGrey[300]),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: theme.colorScheme.primary
+                              .withValues(alpha: 0.6)),
                     ),
                     const SizedBox(width: 10),
-                    Text("Locus 正在思考...", style: TextStyle(color: Colors.blueGrey[400], fontSize: 13)),
+                    Text("Locus 正在思考...",
+                        style: TextStyle(
+                            color: theme.hintColor, fontSize: 13)),
                   ],
                 ),
               ),
             ),
-          _buildInputArea(),
+          _buildInputArea(isDark),
         ],
       ),
     );
   }
 
-  Widget _buildMessageBubble(ChatBubble msg) {
+  Widget _buildMessageBubble(ChatBubble msg, bool isDark) {
+    final theme = Theme.of(context);
+    final userBubbleColor =
+        isDark ? const Color(0xFF333333) : const Color(0xFF212121);
+    final aiBubbleColor = theme.cardColor;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 16.0),
       child: Row(
-        mainAxisAlignment: msg.isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment:
+            msg.isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!msg.isUser) _buildAvatar(Icons.smart_toy_outlined, Colors.blueGrey),
+          if (!msg.isUser)
+            _buildAvatar(Icons.smart_toy_outlined, theme.colorScheme.primary),
           const SizedBox(width: 10),
           Flexible(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: msg.isUser ? Colors.black87 : Colors.white,
+                color: msg.isUser ? userBubbleColor : aiBubbleColor,
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(16),
                   topRight: const Radius.circular(16),
                   bottomLeft: Radius.circular(msg.isUser ? 16 : 4),
                   bottomRight: Radius.circular(msg.isUser ? 4 : 16),
                 ),
-                boxShadow: msg.isUser ? null : [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 2))
-                ],
+                boxShadow: msg.isUser
+                    ? null
+                    : [
+                        BoxShadow(
+                            color: theme.shadowColor.withValues(alpha: 0.08),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2))
+                      ],
               ),
-              // 2. 核心细节修改：根据消息主体动态渲染
               child: msg.isUser
                   ? SelectableText(
                       msg.text,
-                      style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4),
+                      style: const TextStyle(
+                          color: Colors.white, fontSize: 15, height: 1.4),
                     )
                   : MarkdownBody(
                       data: msg.text,
                       selectable: true,
-                      styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                        p: const TextStyle(color: Colors.black87, fontSize: 15, height: 1.5),
-                        h1: const TextStyle(color: Colors.black, fontSize: 20, fontWeight: FontWeight.bold, height: 1.5),
-                        h2: const TextStyle(color: Colors.black87, fontSize: 18, fontWeight: FontWeight.bold, height: 1.5),
-
-                        // 统一用 code 来控制行内代码和代码块内部的字体
-                        code: TextStyle(color: Colors.red[800], backgroundColor: Colors.transparent, fontFamily: 'monospace', fontSize: 14),
-
-                        // 代码块的外框背景依然保留暗色极客风格
+                      styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
+                        p: TextStyle(
+                            color: theme.textTheme.bodyLarge?.color,
+                            fontSize: 15,
+                            height: 1.5),
+                        h1: TextStyle(
+                            color: theme.textTheme.bodyLarge?.color,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            height: 1.5),
+                        h2: TextStyle(
+                            color: theme.textTheme.bodyLarge?.color,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            height: 1.5),
+                        code: TextStyle(
+                            color: theme.colorScheme.primary,
+                            backgroundColor: Colors.transparent,
+                            fontFamily: 'monospace',
+                            fontSize: 14),
                         codeblockDecoration: BoxDecoration(
-                          color: Colors.grey[100],
+                          color: isDark
+                              ? const Color(0xFF2A2A2A)
+                              : const Color(0xFFF5F5F5),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey[300]!),
+                          border: Border.all(
+                              color: theme.dividerColor, width: 1),
                         ),
-
-                        tableBorder: TableBorder.all(color: Colors.grey[300]!, width: 1),
-                        tableBody: const TextStyle(color: Colors.black87, fontSize: 14),
-                        tableHead: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
+                        tableBorder: TableBorder.all(
+                            color: theme.dividerColor, width: 1),
+                        tableBody: TextStyle(
+                            color: theme.textTheme.bodyMedium?.color,
+                            fontSize: 14),
+                        tableHead: TextStyle(
+                            color: theme.textTheme.bodyLarge?.color,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14),
                       ),
                     ),
             ),
           ),
           const SizedBox(width: 10),
-          if (msg.isUser) _buildAvatar(Icons.person_outline, Colors.black87),
+          if (msg.isUser)
+            _buildAvatar(Icons.person_outline, theme.colorScheme.primary),
         ],
       ),
     );
@@ -450,13 +502,18 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  Widget _buildInputArea() {
+  Widget _buildInputArea(bool isDark) {
+    final theme = Theme.of(context);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), offset: const Offset(0, -2), blurRadius: 10)
+          BoxShadow(
+              color: theme.shadowColor.withValues(alpha: 0.08),
+              offset: const Offset(0, -2),
+              blurRadius: 10)
         ],
       ),
       child: SafeArea(
@@ -470,16 +527,20 @@ class _ChatPageState extends State<ChatPage> {
                 minLines: 1,
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => _sendMessage(),
+                style: TextStyle(color: theme.textTheme.bodyLarge?.color),
                 decoration: InputDecoration(
                   hintText: '向 Locus 提问...',
-                  hintStyle: TextStyle(color: Colors.grey[400]),
+                  hintStyle: TextStyle(color: theme.hintColor),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(20),
                     borderSide: BorderSide.none,
                   ),
                   filled: true,
-                  fillColor: Colors.grey[100],
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  fillColor: isDark
+                      ? const Color(0xFF2A2A2A)
+                      : const Color(0xFFF5F5F5),
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 10),
                 ),
               ),
             ),
@@ -488,11 +549,12 @@ class _ChatPageState extends State<ChatPage> {
               onTap: _sendMessage,
               child: Container(
                 padding: const EdgeInsets.all(10),
-                decoration: const BoxDecoration(
-                  color: Colors.black87,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary,
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.arrow_upward, color: Colors.white, size: 20),
+                child: const Icon(Icons.arrow_upward,
+                    color: Colors.white, size: 20),
               ),
             ),
           ],

@@ -17,6 +17,10 @@ class IdeaRepository {
   Future<void> update(int id, String rawText, String intentTag) =>
       _db.updatePayload(id, rawText, intentTag);
 
+  /// 更新闪念的标题
+  Future<void> updateTitle(int payloadId, String? title) =>
+      _db.updatePayloadTitle(payloadId, title);
+
   /// 更新闪念的媒体路径
   Future<void> updateMedia(int id, List<String> paths) =>
       _db.updateMediaPaths(id, jsonEncode(paths));
@@ -55,6 +59,10 @@ class IdeaRepository {
   Stream<List<ContentBlock>> watchBlocks(int payloadId) =>
       _db.watchBlocksForPayload(payloadId);
 
+  /// 监听某条闪念的内容块数量变化
+  Stream<int> watchBlockCount(int payloadId) =>
+      _db.watchBlockCountForPayload(payloadId);
+
   /// 新增内容块
   Future<int> addBlock(
       int payloadId, String blockType, String content, List<String> mediaPaths,
@@ -75,6 +83,15 @@ class IdeaRepository {
 
   /// 删除内容块
   Future<int> removeBlock(int blockId) => _db.deleteBlock(blockId);
+
+  /// 更新内容块标签
+  Future<void> updateBlockTags(int blockId, List<String> tags) =>
+      _db.updateBlockTags(blockId, jsonEncode(tags));
+
+  /// 获取某条闪念的内容块数量（一次性读取）
+  Future<int> getBlockCount(int payloadId) async {
+    return await _db.watchBlockCountForPayload(payloadId).first;
+  }
 
   /// 获取某条闪念的第一个内容块文本（卡片摘要用）
   Future<String?> getFirstBlockText(int payloadId) async {
