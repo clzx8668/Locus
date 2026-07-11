@@ -906,73 +906,79 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   ];
 
   Widget _buildAiInputBar(bool isDark) {
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
-        border: Border(
-          top: BorderSide(
-              color: isDark ? const Color(0xFF333333) : const Color(0xFFE0E0E0),
-              width: 0.5),
+    return Padding(
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+          border: Border(
+            top: BorderSide(
+                color:
+                    isDark ? const Color(0xFF333333) : const Color(0xFFE0E0E0),
+                width: 0.5),
+          ),
         ),
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              // 预设按钮
-              _buildPresetButton(isDark),
-              const SizedBox(width: 8),
-              // 输入框
-              Expanded(
-                child: Container(
-                  constraints: const BoxConstraints(maxHeight: 120),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? const Color(0xFF262626)
-                        : const Color(0xFFF1F3F5),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: TextField(
-                    controller: _aiInputController,
-                    maxLines: 4,
-                    minLines: 1,
-                    textInputAction: TextInputAction.newline,
-                    style: TextStyle(
-                        fontSize: 14,
-                        height: 1.4,
-                        color: isDark ? Colors.white : Colors.black87),
-                    decoration: InputDecoration(
-                      hintText: '与 AI 交流...',
-                      hintStyle: TextStyle(
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                // 预设按钮
+                _buildPresetButton(isDark),
+                const SizedBox(width: 8),
+                // 输入框
+                Expanded(
+                  child: Container(
+                    constraints: const BoxConstraints(maxHeight: 120),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? const Color(0xFF262626)
+                          : const Color(0xFFF1F3F5),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: TextField(
+                      controller: _aiInputController,
+                      maxLines: 4,
+                      minLines: 1,
+                      textInputAction: TextInputAction.newline,
+                      style: TextStyle(
                           fontSize: 14,
-                          color: isDark ? Colors.grey[600] : Colors.grey[500]),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 10),
+                          height: 1.4,
+                          color: isDark ? Colors.white : Colors.black87),
+                      decoration: InputDecoration(
+                        hintText: '与 AI 交流...',
+                        hintStyle: TextStyle(
+                            fontSize: 14,
+                            color:
+                                isDark ? Colors.grey[600] : Colors.grey[500]),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              // 发送按钮
-              GestureDetector(
-                onTap: _sendAiMessage,
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: _aiInputController.text.trim().isEmpty
-                        ? Colors.grey[400]
-                        : const Color(0xFFFF6B6B),
-                    shape: BoxShape.circle,
+                const SizedBox(width: 8),
+                // 发送按钮
+                GestureDetector(
+                  onTap: _sendAiMessage,
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: _aiInputController.text.trim().isEmpty
+                          ? Colors.grey[400]
+                          : const Color(0xFFFF6B6B),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.send_rounded,
+                        size: 16, color: Colors.white),
                   ),
-                  child: const Icon(Icons.send_rounded,
-                      size: 16, color: Colors.white),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

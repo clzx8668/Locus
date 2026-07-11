@@ -255,7 +255,15 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<int> deletePayload(int id) {
-    return (delete(hubPayloads)..where((t) => t.id.equals(id))).go();
+    return transaction(() async {
+      // 先删除关联子表记录，避免外键约束冲突
+      await (delete(ideaTasks)..where((t) => t.payloadId.equals(id))).go();
+      await (delete(aiConversations)..where((t) => t.payloadId.equals(id)))
+          .go();
+      await (delete(contentBlocks)..where((t) => t.payloadId.equals(id))).go();
+      // 最后删除主表记录
+      return (delete(hubPayloads)..where((t) => t.id.equals(id))).go();
+    });
   }
 
   /// 获取所有标签及使用次数统计
