@@ -1,6 +1,7 @@
 import 'package:sqlite3/open.dart';
 import 'package:sqlcipher_flutter_libs/sqlcipher_flutter_libs.dart';
 import 'dart:io';
+import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path_provider/path_provider.dart';
@@ -281,6 +282,25 @@ class AppDatabase extends _$AppDatabase {
       }
     }
     return stats;
+  }
+
+  /// 获取所有内容块中使用过的标签（去重）
+  Future<List<String>> getAllBlockTags() async {
+    final allBlocks = await select(contentBlocks).get();
+    final allTags = <String>{};
+    for (final block in allBlocks) {
+      if (block.tags.isNotEmpty) {
+        try {
+          final tags = jsonDecode(block.tags) as List<dynamic>;
+          for (final tag in tags) {
+            if (tag is String && tag.isNotEmpty) {
+              allTags.add(tag);
+            }
+          }
+        } catch (_) {}
+      }
+    }
+    return allTags.toList()..sort(); // 按字母排序便于查找
   }
 
   // ==================== 任务清单 ====================

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../../core/di/service_locator.dart';
 import '../../../../core/database/database.dart';
 import '../../../../core/services/ai_engine.dart';
@@ -8,6 +9,26 @@ import '../../../../core/theme/design_system.dart';
 import '../../data/idea_repository.dart';
 import '../widgets/content_block_editor.dart';
 import '../widgets/full_block_editor.dart';
+import '../widgets/export_bottom_sheet.dart';
+
+// 标签颜色对
+class _TagColor {
+  final Color fg;
+  final Color bg;
+  const _TagColor(this.fg, this.bg);
+}
+
+// 标签彩色调色板（前景色, 背景色）
+const _tagPalette = [
+  _TagColor(Color(0xFFE85D75), Color(0xFFFDE8EC)), // 玫红
+  _TagColor(Color(0xFF5B8FF9), Color(0xFFE8F0FE)), // 蓝
+  _TagColor(Color(0xFF61DDAA), Color(0xFFE6F9F3)), // 绿
+  _TagColor(Color(0xFFF6BD16), Color(0xFFFFF6D9)), // 金
+  _TagColor(Color(0xFF9D68F2), Color(0xFFF3EAFF)), // 紫
+  _TagColor(Color(0xFF33A5B7), Color(0xFFE3F4F7)), // 青
+  _TagColor(Color(0xFFFF8C42), Color(0xFFFFF0E3)), // 橙
+  _TagColor(Color(0xFF7B8DA1), Color(0xFFEFF2F5)), // 灰蓝
+];
 
 class IdeaDetailPage extends StatefulWidget {
   final HubPayload payload;
@@ -29,6 +50,9 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   final TextEditingController _aiInputController = TextEditingController();
   bool _isAiWorking = false;
   String _activeAiAction = '';
+
+  final Set<int> _expandedTags = {}; // 标签展开状态
+  final Set<int> _editingTags = {}; // 标签编辑状态（长按进入）
 
   late String _currentTitle;
 
@@ -185,6 +209,87 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     );
   }
 
+  static const Map<String, String> _tagLabels = {
+    'NOTE': '普通笔记',
+    'TODO': '待办清单',
+    'CRM': '客户关系',
+    'LEDGER': '记账',
+    'INVENTORY': '库存管理',
+    'HABIT': '习惯打卡',
+  };
+
+  void _showArchiveSubMenu(bool isDark) {
+    showMenu<String>(
+      context: context,
+      position: const RelativeRect.fromLTRB(1000, 100, 1000, 200),
+      color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      items: _tagLabels.entries.map((entry) {
+        final isCurrent = widget.payload.intentTag == entry.key;
+        return PopupMenuItem<String>(
+          value: entry.key,
+          child: Row(
+            children: [
+              if (isCurrent)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Icon(Icons.check_rounded,
+                      size: 16,
+                      color: const Color(0xFFFF6B6B).withValues(alpha: 0.7)),
+                ),
+              Text(entry.value, style: const TextStyle(fontSize: 13)),
+            ],
+          ),
+        );
+      }).toList(),
+    ).then((selectedTag) {
+      if (selectedTag != null && mounted) {
+        _repo.update(widget.payload.id, widget.payload.rawText, selectedTag);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已归档到 ${_tagLabels[selectedTag]}'),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
+  }
+
+  Future<void> _showExportSheet(bool isDark) async {
+    final blocks = await _repo.watchBlocks(widget.payload.id).first;
+    final exportContent = blocks.isEmpty
+        ? widget.payload.rawText
+        : blocks.map((b) => b.content).join('\n\n---\n\n');
+
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ExportBottomSheet(content: exportContent),
+    );
+  }
+
+  void _copyBlockContent(ContentBlock block) {
+    Clipboard.setData(ClipboardData(text: block.content));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('已复制'),
+        duration: Duration(seconds: 1),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _exportBlockContent(ContentBlock block) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ExportBottomSheet(content: block.content),
+    );
+  }
+
   @override
   void dispose() {
     _newTaskController.dispose();
@@ -295,6 +400,17 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     final mediaPaths = _parseMediaPaths(block.mediaPaths);
     final isVoice = block.sourceType == 'voice';
     final dateStr = _formatBlockTime(block.createdAt);
+    final isEditing = _editingTags.contains(block.id);
+
+    // 正文区域
+    Widget buildTextArea() {
+      if (block.content.isEmpty) return const SizedBox.shrink();
+      if (isEditing) {
+        return _renderMarkdownPreview(block.content, isDark);
+      }
+      return SelectionArea(
+          child: _renderMarkdownPreview(block.content, isDark));
+    }
 
     return Container(
         margin: const EdgeInsets.only(bottom: 10),
@@ -333,17 +449,6 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                     label: '播放',
                     onTap: () {},
                   ),
-                if (!block.aiPolished)
-                  _BlockIconButton(
-                    icon: Icons.auto_fix_high_rounded,
-                    label: '润色',
-                    color: Colors.amber,
-                    onTap: _isAiWorking ? null : () => _polishBlock(block),
-                  ),
-                if (block.aiPolished)
-                  Icon(Icons.check_circle_outline_rounded,
-                      size: 14, color: Colors.green[400]),
-                const SizedBox(width: 4),
                 _BlockIconButton(
                   icon: Icons.delete_outline_rounded,
                   label: null,
@@ -354,7 +459,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             ),
             if (block.content.isNotEmpty) ...[
               const SizedBox(height: 8),
-              _renderMarkdownPreview(block.content, isDark),
+              buildTextArea(),
             ],
             // 媒体预览
             if (mediaPaths.isNotEmpty) ...[
@@ -389,8 +494,30 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                 }).toList(),
               ),
             ],
-            // ===== 每块独立标签区域 =====
-            _buildBlockTagSection(block, theme, isDark),
+            // ===== 标签 + AI 润色 + 复制导出（同行） =====
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // 左侧：AI润色 + 标签
+                Expanded(
+                  child: _buildBlockBottomLeft(block, theme, isDark),
+                ),
+                const SizedBox(width: 24),
+                // 右侧：复制 + 导出
+                _BlockIconButton(
+                  icon: Icons.copy_rounded,
+                  label: '复制',
+                  onTap: () => _copyBlockContent(block),
+                ),
+                const SizedBox(width: 4),
+                _BlockIconButton(
+                  icon: Icons.ios_share_rounded,
+                  label: '导出',
+                  onTap: () => _exportBlockContent(block),
+                ),
+              ],
+            ),
           ],
         ));
   }
@@ -422,111 +549,216 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     }
   }
 
-  // ==================== 块内标签 ====================
+  // ==================== 块底栏（AI润色 + 标签 + 添加标签） ====================
 
-  Widget _buildBlockTagSection(
+  Widget _buildBlockBottomLeft(
       ContentBlock block, ThemeData theme, bool isDark) {
     final tags = _parseTags(block.tags);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 6,
-          runSpacing: 4,
-          children: [
-            ...tags.map((tag) {
-              final displayTag = tag.startsWith('#') ? tag : '#$tag';
-              return InputChip(
-                label: Text(displayTag, style: const TextStyle(fontSize: 11)),
-                deleteIcon: const Icon(Icons.close_rounded,
-                    size: 12, color: Colors.grey),
-                onDeleted: () {
-                  final updated = List<String>.from(tags)..remove(tag);
-                  _repo.updateBlockTags(block.id, updated);
-                },
-                backgroundColor:
-                    const Color(0xFFFF6B6B).withValues(alpha: 0.06),
-                labelStyle: const TextStyle(
-                    color: Color(0xFFFF6B6B),
-                    fontWeight: FontWeight.w500,
-                    fontSize: 11),
-                side: BorderSide.none,
-                padding: const EdgeInsets.symmetric(horizontal: 3),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                visualDensity: VisualDensity.compact,
-              );
-            }),
-            ActionChip(
-              label: const Text('+ 标签', style: TextStyle(fontSize: 11)),
-              onPressed: () => _showBlockTagDialog(block, tags),
-              backgroundColor:
-                  isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
-              side: BorderSide.none,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-            ),
-          ],
+    final isEditing = _editingTags.contains(block.id);
+    final isExpanded = isEditing || _expandedTags.contains(block.id);
+    final hasTags = tags.isNotEmpty;
+
+    // 估算单个标签的大致宽度：区分 CJK 宽字符与拉丁窄字符
+    double estimateTagWidth(String tag) {
+      final display = tag.startsWith('#') ? tag : '#$tag';
+      double textWidth = 0;
+      for (final codeUnit in display.codeUnits) {
+        // CJK / 全角字符 ≈ fontSize(11)，拉丁/数字 ≈ 7
+        textWidth += codeUnit > 0x7F ? 11 : 7;
+      }
+      return (12 + textWidth + 4) * 1.08; // padding + text + spacing，8%余量
+    }
+
+    // 计算是否需要展开（标签总宽超过可用宽时）
+    bool calcNeedsExpand(double availableWidth) {
+      final totalWidth =
+          tags.fold<double>(0, (sum, t) => sum + estimateTagWidth(t));
+      return totalWidth > availableWidth;
+    }
+
+    Widget buildTagChip(String tag, {VoidCallback? onToggleExpand}) {
+      final displayTag = tag.startsWith('#') ? tag : '#$tag';
+      final colorPair = _tagPalette[tag.hashCode.abs() % _tagPalette.length];
+      if (isEditing) {
+        return InputChip(
+          label: Text(displayTag,
+              style: TextStyle(
+                  color: colorPair.fg,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 10)),
+          deleteIcon:
+              const Icon(Icons.close_rounded, size: 10, color: Colors.grey),
+          onDeleted: () {
+            final updated = List<String>.from(tags)..remove(tag);
+            _repo.updateBlockTags(block.id, updated);
+          },
+          backgroundColor: colorPair.bg,
+          side: BorderSide.none,
+          padding: const EdgeInsets.symmetric(horizontal: 2),
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+        );
+      }
+      // 正常状态：轻触展开/折叠，长按进入编辑
+      return GestureDetector(
+        onTap: onToggleExpand,
+        onLongPress: () {
+          HapticFeedback.lightImpact();
+          setState(() => _editingTags.add(block.id));
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: colorPair.bg,
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(displayTag,
+              style: TextStyle(
+                  color: colorPair.fg,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 11)),
         ),
-      ],
-    );
+      );
+    }
+
+    // 构建标签行
+    Widget buildTagRow(double availableWidth) {
+      // 减掉 AI 图标(~20) + 添加按钮(~32)，剩余才是标签可用宽度
+      final tagAreaWidth = availableWidth - 20 - 32;
+      final needsExpand = hasTags && calcNeedsExpand(tagAreaWidth);
+      // 仅多行时显示展开/折叠箭头；编辑模式由 + 按钮切换为"完成"
+      final showExpandBtn = needsExpand;
+      // 如果显示展开按钮，标签实际可用宽度还要再减按钮宽度(~20)
+      final actualWidth = showExpandBtn ? tagAreaWidth - 20 : tagAreaWidth;
+      final reallyNeedsExpand = hasTags && calcNeedsExpand(actualWidth);
+      const collapsedHeight = 22.0;
+
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // AI 润色按钮或已润色图标
+          if (!block.aiPolished)
+            GestureDetector(
+              onTap: _isAiWorking ? null : () => _polishBlock(block),
+              child: Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: Icon(Icons.auto_fix_high_rounded,
+                    size: 14,
+                    color: _isAiWorking ? Colors.grey[500] : Colors.amber),
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Icon(Icons.check_circle_outline_rounded,
+                  size: 14, color: Colors.green[400]),
+            ),
+          // 标签区域
+          Flexible(
+            child: ConstrainedBox(
+              constraints: (!isExpanded && reallyNeedsExpand)
+                  ? const BoxConstraints(maxHeight: collapsedHeight)
+                  : const BoxConstraints(),
+              child: hasTags
+                  ? Wrap(
+                      spacing: 4,
+                      runSpacing: 2,
+                      clipBehavior: Clip.antiAlias,
+                      children: tags
+                          .map((tag) => buildTagChip(
+                                tag,
+                                onToggleExpand: reallyNeedsExpand
+                                    ? () => setState(() {
+                                          if (isExpanded) {
+                                            _expandedTags.remove(block.id);
+                                          } else {
+                                            _expandedTags.add(block.id);
+                                          }
+                                        })
+                                    : null,
+                              ))
+                          .toList(),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ),
+          // 展开/折叠按钮（仅多行标签时显示）
+          if (showExpandBtn)
+            GestureDetector(
+              onTap: () => setState(() {
+                if (isExpanded) {
+                  _expandedTags.remove(block.id);
+                } else {
+                  _expandedTags.add(block.id);
+                }
+              }),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: Icon(
+                  isExpanded
+                      ? Icons.expand_less_rounded
+                      : Icons.expand_more_rounded,
+                  size: 14,
+                  color: Colors.grey[500],
+                ),
+              ),
+            ),
+          // 添加标签 / 完成编辑
+          ActionChip(
+            label: Text(isEditing ? '完成' : '+',
+                style: TextStyle(
+                    fontSize: 11, color: isEditing ? Colors.white : null)),
+            onPressed: isEditing
+                ? () => setState(() => _editingTags.remove(block.id))
+                : () => _showBlockTagDialog(block, tags),
+            backgroundColor: isEditing
+                ? const Color(0xFFFF6B6B)
+                : (isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5)),
+            side: BorderSide.none,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.symmetric(horizontal: isEditing ? 8 : 6),
+          ),
+        ],
+      );
+    }
+
+    // 计算标签可用宽度：
+    // 屏幕宽 - 页面padding(16*2) - 块padding(14*2) - 右侧gap(24) - 复制(~20) - gap(4) - 导出(~20)
+    final screenWidth = MediaQuery.of(context).size.width;
+    final availableWidth = screenWidth - 32 - 28 - 24 - 20 - 4 - 20;
+
+    return buildTagRow(availableWidth);
   }
 
   void _showBlockTagDialog(ContentBlock block, List<String> currentTags) {
-    final controller = TextEditingController();
+    final controller = TextEditingController(text: '#');
+    controller.selection =
+        TextSelection.collapsed(offset: controller.text.length);
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('添加标签'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: '输入标签名',
-            filled: true,
-            fillColor: Theme.of(context).brightness == Brightness.dark
-                ? const Color(0xFF262626)
-                : const Color(0xFFF1F3F5),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-          ),
-          onSubmitted: (val) {
-            final tag = val.trim();
-            if (tag.isNotEmpty) {
-              final cleanTag = tag.startsWith('#') ? tag : '#$tag';
-              final updated = List<String>.from(currentTags);
-              if (!updated.contains(cleanTag)) {
-                updated.add(cleanTag);
-              }
-              _repo.updateBlockTags(block.id, updated);
-              Navigator.pop(ctx);
+      builder: (ctx) => _TagDialog(
+        controller: controller,
+        currentTags: currentTags,
+        repo: _repo,
+        onConfirm: (String value) {
+          final parts = value
+              .split('#')
+              .map((s) => s.trim())
+              .where((s) => s.isNotEmpty)
+              .toList();
+          if (parts.isEmpty) return;
+
+          final updated = List<String>.from(currentTags);
+          for (final part in parts) {
+            final cleanTag = '#$part';
+            if (!updated.contains(cleanTag)) {
+              updated.add(cleanTag);
             }
-          },
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          FilledButton(
-            onPressed: () {
-              final tag = controller.text.trim();
-              if (tag.isNotEmpty) {
-                final cleanTag = tag.startsWith('#') ? tag : '#$tag';
-                final updated = List<String>.from(currentTags);
-                if (!updated.contains(cleanTag)) {
-                  updated.add(cleanTag);
-                }
-                _repo.updateBlockTags(block.id, updated);
-                Navigator.pop(ctx);
-              }
-            },
-            style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFFF6B6B)),
-            child: const Text('确定', style: TextStyle(color: Colors.white)),
-          ),
-        ],
+          }
+          _repo.updateBlockTags(block.id, updated);
+        },
       ),
     );
   }
@@ -555,13 +787,26 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
           onPressed: () => Navigator.pop(context),
         ),
         actions: [
+          // 导出按钮
+          IconButton(
+            icon: const Icon(Icons.ios_share_rounded, size: 18),
+            onPressed: () => _showExportSheet(isDark),
+            tooltip: '导出',
+          ),
+          const SizedBox(width: 2),
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_horiz_rounded, size: 18),
+            icon: const Icon(Icons.more_vert_rounded, size: 18),
             color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
             itemBuilder: (ctx) => [
               const PopupMenuItem(
                   value: 'edit_title',
                   child: Text('修改标题', style: TextStyle(fontSize: 13))),
+              const PopupMenuItem(
+                  value: 'archive',
+                  child: Text('归档', style: TextStyle(fontSize: 13))),
+              const PopupMenuItem(
+                  value: 'hide',
+                  child: Text('隐藏', style: TextStyle(fontSize: 13))),
               const PopupMenuItem(
                   value: 'delete',
                   child: Text('删除此条',
@@ -570,6 +815,16 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             onSelected: (val) {
               if (val == 'edit_title') {
                 _showEditTitleDialog(isDark);
+              } else if (val == 'archive') {
+                _showArchiveSubMenu(isDark);
+              } else if (val == 'hide') {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('功能开发中，敬请期待'),
+                    duration: Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
               } else if (val == 'delete') {
                 _confirmDelete();
               }
@@ -578,54 +833,74 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
           const SizedBox(width: 8),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ===== 内容块区域 =====
-            StreamBuilder<List<ContentBlock>>(
-              stream: _blocksStream,
-              builder: (context, snapshot) {
-                final blocks = snapshot.data ?? [];
+      body: Builder(
+        builder: (context) {
+          Widget content = SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ===== 内容块区域 =====
+                StreamBuilder<List<ContentBlock>>(
+                  stream: _blocksStream,
+                  builder: (context, snapshot) {
+                    final blocks = snapshot.data ?? [];
 
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 块标题
-                    if (blocks.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Text('内容记录',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.grey[500])),
-                      ),
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 块标题
+                        if (blocks.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Text('内容记录',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey[500])),
+                          ),
 
-                    // 渲染所有内容块
-                    ...blocks.map(
-                        (block) => _buildContentBlock(block, theme, isDark)),
+                        // 渲染所有内容块
+                        ...blocks.map((block) =>
+                            _buildContentBlock(block, theme, isDark)),
 
-                    // 追加内容按钮（始终在最后一个块之后）
-                    const SizedBox(height: 6),
-                    _buildAddBlockButton(isDark, theme),
-                  ],
-                );
-              },
+                        // 追加内容按钮（始终在最后一个块之后）
+                        const SizedBox(height: 6),
+                        _buildAddBlockButton(isDark, theme),
+                      ],
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 20),
+
+                // ===== AI 对话区域 =====
+                _buildAiSection(theme, isDark),
+
+                const SizedBox(height: 20),
+
+                // ===== 任务清单 =====
+                _buildTaskSection(theme, isDark),
+              ],
             ),
+          );
 
-            const SizedBox(height: 20),
-
-            // ===== AI 对话区域 =====
-            _buildAiSection(theme, isDark),
-
-            const SizedBox(height: 20),
-
-            // ===== 任务清单 =====
-            _buildTaskSection(theme, isDark),
-          ],
-        ),
+          // 标签编辑激活时：整个页面任意点击（除标签删除控件外）退出编辑
+          if (_editingTags.isNotEmpty) {
+            return Listener(
+              behavior: HitTestBehavior.translucent,
+              onPointerDown: (_) {
+                Future.microtask(() {
+                  if (mounted && _editingTags.isNotEmpty) {
+                    setState(() => _editingTags.clear());
+                  }
+                });
+              },
+              child: content,
+            );
+          }
+          return content;
+        },
       ),
       bottomNavigationBar: _buildAiInputBar(isDark),
     );
@@ -1378,7 +1653,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
       segments.add(TextSpan(text: text.substring(lastEnd), style: baseStyle));
     }
 
-    return RichText(text: TextSpan(children: segments));
+    return Text.rich(TextSpan(children: segments));
   }
 
   List<String> _parseMediaPaths(String mediaPathsJson) {
@@ -1411,6 +1686,151 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   }
 }
 
+/// 标签添加弹窗（带历史标签建议）
+class _TagDialog extends StatefulWidget {
+  final TextEditingController controller;
+  final List<String> currentTags;
+  final IdeaRepository repo;
+  final void Function(String value) onConfirm;
+
+  const _TagDialog({
+    required this.controller,
+    required this.currentTags,
+    required this.repo,
+    required this.onConfirm,
+  });
+
+  @override
+  State<_TagDialog> createState() => _TagDialogState();
+}
+
+class _TagDialogState extends State<_TagDialog> {
+  List<String> _allTags = [];
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTags();
+  }
+
+  Future<void> _loadTags() async {
+    final tags = await widget.repo.getAllBlockTags();
+    if (mounted) {
+      setState(() {
+        _allTags = tags;
+        _loaded = true;
+      });
+    }
+  }
+
+  /// 点击历史标签，追加到输入框
+  void _appendTag(String tag) {
+    final current = widget.controller.text;
+    final cleanTag = tag.startsWith('#') ? tag.substring(1) : tag;
+    String newText;
+    if (current == '#') {
+      newText = '#$cleanTag';
+    } else if (current.endsWith('#')) {
+      newText = '${current}$cleanTag';
+    } else {
+      newText = '$current#$cleanTag';
+    }
+    widget.controller.text = newText;
+    widget.controller.selection =
+        TextSelection.collapsed(offset: newText.length);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return AlertDialog(
+      title: const Text('添加标签'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 输入框，默认光标在 # 后面
+            TextField(
+              controller: widget.controller,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: '用 # 分隔可一次添加多个',
+                filled: true,
+                fillColor:
+                    isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              onSubmitted: (val) {
+                if (val.trim().isNotEmpty && val != '#') {
+                  widget.onConfirm(val);
+                  Navigator.pop(context);
+                }
+              },
+            ),
+            // 历史标签区域
+            if (_loaded && _allTags.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text('历史标签',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: _allTags.map((tag) {
+                  final alreadyAdded = widget.currentTags.contains(tag);
+                  final colorPair =
+                      _tagPalette[tag.hashCode.abs() % _tagPalette.length];
+                  return ActionChip(
+                    label: Text(tag,
+                        style: TextStyle(
+                            fontSize: 11,
+                            color:
+                                alreadyAdded ? Colors.grey[500] : colorPair.fg,
+                            fontWeight: FontWeight.w500)),
+                    onPressed: () => _appendTag(tag),
+                    backgroundColor:
+                        alreadyAdded ? Colors.grey[300] : colorPair.bg,
+                    side: BorderSide(
+                        color:
+                            alreadyAdded ? Colors.grey.shade400 : colorPair.bg,
+                        width: 0.5),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  );
+                }).toList(),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context), child: const Text('取消')),
+        FilledButton(
+          onPressed: () {
+            final val = widget.controller.text.trim();
+            if (val.isNotEmpty && val != '#') {
+              widget.onConfirm(val);
+              Navigator.pop(context);
+            }
+          },
+          style:
+              FilledButton.styleFrom(backgroundColor: const Color(0xFFFF6B6B)),
+          child: const Text('确定', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    );
+  }
+}
+
 /// 内容块的操作图标按钮
 class _BlockIconButton extends StatelessWidget {
   final IconData icon;
@@ -1429,6 +1849,7 @@ class _BlockIconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = color ?? Colors.grey[500]!;
     final effectiveOnTap = onTap;
+    final isSmallScreen = MediaQuery.of(context).size.width < 600;
 
     return GestureDetector(
       onTap: effectiveOnTap,
@@ -1439,7 +1860,7 @@ class _BlockIconButton extends StatelessWidget {
           children: [
             Icon(icon,
                 size: 14, color: effectiveOnTap == null ? Colors.grey[700] : c),
-            if (label != null) ...[
+            if (!isSmallScreen && label != null) ...[
               const SizedBox(width: 2),
               Text(label!, style: TextStyle(fontSize: 10, color: c)),
             ],

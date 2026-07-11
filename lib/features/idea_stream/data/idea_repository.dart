@@ -88,6 +88,9 @@ class IdeaRepository {
   Future<void> updateBlockTags(int blockId, List<String> tags) =>
       _db.updateBlockTags(blockId, jsonEncode(tags));
 
+  /// 获取所有使用过的块标签（去重、排序）
+  Future<List<String>> getAllBlockTags() => _db.getAllBlockTags();
+
   /// 获取某条闪念的内容块数量（一次性读取）
   Future<int> getBlockCount(int payloadId) async {
     return await _db.watchBlockCountForPayload(payloadId).first;
