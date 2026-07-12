@@ -50,8 +50,13 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   final TextEditingController _aiInputController = TextEditingController();
   bool _isAiWorking = false;
   String _activeAiAction = '';
+  final FocusNode _aiInputFocus = FocusNode();
 
   final Set<int> _expandedTags = {}; // 标签展开状态
+
+  /// 编辑模式：正在编辑的用户消息ID，以及其配对的AI回复ID
+  int? _editingUserConvId;
+  int? _editingPairedAiConvId;
 
   late String _currentTitle;
 
@@ -293,6 +298,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   void dispose() {
     _newTaskController.dispose();
     _aiInputController.dispose();
+    _aiInputFocus.dispose();
     super.dispose();
   }
 
@@ -372,6 +378,16 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     final text = _aiInputController.text.trim();
     if (text.isEmpty) return;
 
+    // 编辑模式：先删除旧对话
+    if (_editingUserConvId != null) {
+      await _repo.deleteConversation(_editingUserConvId!);
+      if (_editingPairedAiConvId != null) {
+        await _repo.deleteConversation(_editingPairedAiConvId!);
+      }
+      _editingUserConvId = null;
+      _editingPairedAiConvId = null;
+    }
+
     // 保存用户消息
     await _repo.addConversation(widget.payload.id, 'user', text);
     _aiInputController.clear();
@@ -385,6 +401,174 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     final response = await _ai.chat(
       '用户正在查看一条笔记，内容如下：\n$contextText\n\n请根据用户的问题提供帮助。简洁回答。',
       text,
+    );
+
+    if (mounted) {
+      await _repo.addConversation(widget.payload.id, 'assistant', response);
+      setState(() => _isAiWorking = false);
+    }
+  }
+
+  /// 查找用户消息配对的 AI 回复 ID
+  Future<int?> _findPairedAiResponse(int userConvId) async {
+    final conversations = await _conversationsStream.first;
+    final userIndex = conversations.indexWhere((c) => c.id == userConvId);
+    if (userIndex < 0 || userIndex >= conversations.length - 1) return null;
+    final next = conversations[userIndex + 1];
+    return next.role == 'assistant' ? next.id : null;
+  }
+
+  void _copyText(String text) {
+    Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('已复制'),
+          duration: Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _exportAiContent(String content) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ExportBottomSheet(content: content),
+    );
+  }
+
+  /// 用户消息长按菜单
+  void _showUserMessageMenu(AiConversation conv) async {
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('编辑'),
+              onTap: () => Navigator.pop(ctx, 'edit'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy_outlined),
+              title: const Text('复制'),
+              onTap: () => Navigator.pop(ctx, 'copy'),
+            ),
+            ListTile(
+              leading:
+                  const Icon(Icons.delete_outline, color: Colors.redAccent),
+              title:
+                  const Text('删除', style: TextStyle(color: Colors.redAccent)),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == 'edit') {
+      _aiInputController.text = conv.content;
+      _editingUserConvId = conv.id;
+      _editingPairedAiConvId = await _findPairedAiResponse(conv.id);
+      _aiInputFocus.requestFocus();
+    } else if (result == 'copy') {
+      _copyText(conv.content);
+    } else if (result == 'delete') {
+      _confirmDeleteConversation(conv);
+    }
+  }
+
+  /// 确认删除用户消息（含配对的 AI 回复）
+  void _confirmDeleteConversation(AiConversation userConv) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除对话'),
+        content: const Text('确定删除此提问及 AI 回复？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除', style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _repo.deleteConversation(userConv.id);
+      final pairedAiId = await _findPairedAiResponse(userConv.id);
+      if (pairedAiId != null) {
+        await _repo.deleteConversation(pairedAiId);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('已删除'),
+            duration: Duration(seconds: 1),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  /// AI 回复"更多"菜单
+  void _showAiMoreMenu(AiConversation conv) async {
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.refresh_rounded),
+              title: const Text('重新生成'),
+              onTap: () => Navigator.pop(ctx, 'regenerate'),
+            ),
+            ListTile(
+              leading:
+                  const Icon(Icons.delete_outline, color: Colors.redAccent),
+              title:
+                  const Text('删除', style: TextStyle(color: Colors.redAccent)),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == 'regenerate') {
+      await _regenerateAiResponse(conv);
+    } else if (result == 'delete') {
+      await _repo.deleteConversation(conv.id);
+    }
+  }
+
+  /// 重新生成 AI 回复
+  Future<void> _regenerateAiResponse(AiConversation aiConv) async {
+    final conversations = await _conversationsStream.first;
+    final aiIndex = conversations.indexWhere((c) => c.id == aiConv.id);
+    if (aiIndex <= 0) return;
+
+    final userConv = conversations[aiIndex - 1];
+    if (userConv.role != 'user') return;
+
+    await _repo.deleteConversation(aiConv.id);
+    setState(() => _isAiWorking = true);
+
+    final blocks = await _repo.watchBlocks(widget.payload.id).first;
+    final contextText = blocks.map((b) => b.content).join('\n---\n');
+
+    final response = await _ai.chat(
+      '用户正在查看一条笔记，内容如下：\n$contextText\n\n请根据用户的问题提供帮助。简洁回答。',
+      userConv.content,
     );
 
     if (mounted) {
@@ -967,14 +1151,13 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     final isUser = conv.role == 'user';
     const bubbleMaxWidth = 0.75;
 
-    return Padding(
+    final bubbleRow = Padding(
       padding: const EdgeInsets.only(top: 6, bottom: 6),
       child: Row(
         mainAxisAlignment:
             isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          // 用户消息：头像在右；AI 消息：头像在左
           if (!isUser)
             Padding(
               padding: const EdgeInsets.only(right: 8),
@@ -1008,18 +1191,21 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                       : const Radius.circular(16),
                 ),
               ),
-              child: Text(
-                conv.content,
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.5,
-                  color: isUser
-                      ? Colors.white
-                      : isDark
-                          ? Colors.grey[200]
-                          : const Color(0xFF333333),
-                ),
-              ),
+              child: isUser
+                  ? Text(
+                      conv.content,
+                      style: const TextStyle(
+                          fontSize: 13, height: 1.5, color: Colors.white),
+                    )
+                  : SelectableText(
+                      conv.content,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.5,
+                        color:
+                            isDark ? Colors.grey[200] : const Color(0xFF333333),
+                      ),
+                    ),
             ),
           ),
           if (isUser)
@@ -1038,6 +1224,38 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             ),
         ],
       ),
+    );
+
+    // AI 消息：气泡行 + 底部按钮行
+    if (!isUser) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          bubbleRow,
+          Padding(
+            padding: const EdgeInsets.only(left: 36, bottom: 2),
+            child: Row(
+              children: [
+                _BlockIconButton(
+                    icon: Icons.copy_outlined,
+                    onTap: () => _copyText(conv.content)),
+                _BlockIconButton(
+                    icon: Icons.ios_share_rounded,
+                    onTap: () => _exportAiContent(conv.content)),
+                _BlockIconButton(
+                    icon: Icons.more_horiz_rounded,
+                    onTap: () => _showAiMoreMenu(conv)),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    // 用户消息：包裹长按手势
+    return GestureDetector(
+      onLongPress: () => _showUserMessageMenu(conv),
+      child: bubbleRow,
     );
   }
 
@@ -1125,6 +1343,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                     ),
                     child: TextField(
                       controller: _aiInputController,
+                      focusNode: _aiInputFocus,
                       maxLines: 4,
                       minLines: 1,
                       textInputAction: TextInputAction.newline,

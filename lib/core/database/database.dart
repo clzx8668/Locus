@@ -409,6 +409,10 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  Future<void> deleteConversation(int id) {
+    return (delete(aiConversations)..where((t) => t.id.equals(id))).go();
+  }
+
   Stream<List<HubPayload>> watchAllPayloads() {
     return (select(hubPayloads)
           ..orderBy([

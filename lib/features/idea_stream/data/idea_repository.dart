@@ -112,4 +112,7 @@ class IdeaRepository {
   /// 新增对话记录
   Future<int> addConversation(int payloadId, String role, String content) =>
       _db.insertConversation(payloadId, role, content);
+
+  /// 删除单条对话记录
+  Future<void> deleteConversation(int id) => _db.deleteConversation(id);
 }
