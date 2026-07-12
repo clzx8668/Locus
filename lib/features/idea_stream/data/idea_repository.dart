@@ -116,3 +116,39 @@ class IdeaRepository {
   /// 删除单条对话记录
   Future<void> deleteConversation(int id) => _db.deleteConversation(id);
 }
+
+/// AI 模板仓库 —— 封装 AiTemplates 的 CRUD 与查询逻辑
+class TemplateRepository {
+  final AppDatabase _db;
+
+  TemplateRepository(this._db);
+
+  Stream<List<AiTemplate>> watchEnabled() => _db.watchEnabledTemplates();
+
+  Stream<List<AiTemplate>> watchAll() => _db.watchAllTemplates();
+
+  Future<int> insert(String icon, String name, String prompt) =>
+      _db.insertTemplate(icon, name, prompt);
+
+  Future<void> update(
+    int id, {
+    String? icon,
+    String? name,
+    String? prompt,
+    bool? isEnabled,
+    int? sortOrder,
+  }) =>
+      _db.updateTemplate(
+        id,
+        icon: icon,
+        name: name,
+        prompt: prompt,
+        isEnabled: isEnabled,
+        sortOrder: sortOrder,
+      );
+
+  Future<void> delete(int id) => _db.deleteTemplate(id);
+
+  Future<void> reorder(List<int> orderedIds) =>
+      _db.reorderTemplates(orderedIds);
+}

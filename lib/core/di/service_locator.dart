@@ -10,6 +10,8 @@ final getIt = GetIt.instance;
 Future<void> setupLocator() async {
   getIt.registerSingleton<AppDatabase>(AppDatabase());
   getIt.registerSingleton<IdeaRepository>(IdeaRepository(getIt<AppDatabase>()));
+  getIt.registerSingleton<TemplateRepository>(
+      TemplateRepository(getIt<AppDatabase>()));
   getIt.registerSingleton<AiEngine>(AiEngine());
 
   final settings = SettingsService();

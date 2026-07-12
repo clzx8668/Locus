@@ -157,6 +157,24 @@ class AiConversations extends Table {
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+/// AI 模板表 (AiTemplates) —— AI 智能指令模板
+/// 用户可自定义的 AI Prompt 快捷指令，支持图标、排序、启禁用
+class AiTemplates extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  TextColumn get icon => text().withDefault(const Constant('📋'))();
+
+  TextColumn get name => text()();
+
+  TextColumn get prompt => text()();
+
+  BoolColumn get isEnabled => boolean().withDefault(const Constant(true))();
+
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
 @DriftDatabase(tables: [
   HubPayloads,
   ChatSessions,
@@ -167,12 +185,13 @@ class AiConversations extends Table {
   IdeaTasks,
   ContentBlocks,
   AiConversations,
+  AiTemplates,
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration {
@@ -221,6 +240,12 @@ class AppDatabase extends _$AppDatabase {
           await customStatement(
             'ALTER TABLE content_blocks ADD COLUMN tags TEXT NOT NULL DEFAULT \'[]\'',
           );
+        }
+        // v9 → v10: 新增 AiTemplates 表
+        if (from <= 9) {
+          await m.createTable(aiTemplates);
+          // 插入默认种子数据
+          await _seedDefaultTemplates();
         }
       },
       beforeOpen: (details) async {
@@ -411,6 +436,75 @@ class AppDatabase extends _$AppDatabase {
 
   Future<void> deleteConversation(int id) {
     return (delete(aiConversations)..where((t) => t.id.equals(id))).go();
+  }
+
+  // ==================== AI 模板 ====================
+
+  Stream<List<AiTemplate>> watchEnabledTemplates() {
+    return (select(aiTemplates)
+          ..where((t) => t.isEnabled.equals(true))
+          ..orderBy([(t) => OrderingTerm(expression: t.sortOrder)]))
+        .watch();
+  }
+
+  Stream<List<AiTemplate>> watchAllTemplates() {
+    return (select(aiTemplates)
+          ..orderBy([(t) => OrderingTerm(expression: t.sortOrder)]))
+        .watch();
+  }
+
+  Future<int> insertTemplate(String icon, String name, String prompt) {
+    return into(aiTemplates).insert(
+      AiTemplatesCompanion.insert(
+          name: name, prompt: prompt, icon: Value(icon)),
+    );
+  }
+
+  Future<void> updateTemplate(
+    int id, {
+    String? icon,
+    String? name,
+    String? prompt,
+    bool? isEnabled,
+    int? sortOrder,
+  }) {
+    return (update(aiTemplates)..where((t) => t.id.equals(id))).write(
+      AiTemplatesCompanion(
+        icon: icon != null ? Value(icon) : const Value.absent(),
+        name: name != null ? Value(name) : const Value.absent(),
+        prompt: prompt != null ? Value(prompt) : const Value.absent(),
+        isEnabled: isEnabled != null ? Value(isEnabled) : const Value.absent(),
+        sortOrder: sortOrder != null ? Value(sortOrder) : const Value.absent(),
+      ),
+    );
+  }
+
+  Future<void> deleteTemplate(int id) {
+    return (delete(aiTemplates)..where((t) => t.id.equals(id))).go();
+  }
+
+  Future<void> reorderTemplates(List<int> orderedIds) async {
+    for (int i = 0; i < orderedIds.length; i++) {
+      await (update(aiTemplates)..where((t) => t.id.equals(orderedIds[i])))
+          .write(AiTemplatesCompanion(sortOrder: Value(i)));
+    }
+  }
+
+  /// 种子数据：默认 AI 指令模板
+  Future<void> _seedDefaultTemplates() async {
+    final defaults = [
+      ('📝', '总结全文要点', '请根据以上内容，总结全文的核心要点'),
+      ('🌐', '翻译为英文', '请将以上内容翻译为英文'),
+      ('✨', '润色优化表达', '请润色优化以上内容的表达，使其更流畅专业'),
+      ('🔍', '提取关键信息', '请从以上内容中提取关键信息'),
+      ('📑', '生成内容大纲', '请根据以上内容生成结构化的内容大纲'),
+    ];
+    for (int i = 0; i < defaults.length; i++) {
+      final (icon, name, prompt) = defaults[i];
+      await insertTemplate(icon, name, prompt);
+      await (update(aiTemplates)..where((t) => t.name.equals(name)))
+          .write(AiTemplatesCompanion(sortOrder: Value(i)));
+    }
   }
 
   Stream<List<HubPayload>> watchAllPayloads() {

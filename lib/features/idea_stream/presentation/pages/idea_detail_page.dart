@@ -10,6 +10,7 @@ import '../../data/idea_repository.dart';
 import '../widgets/content_block_editor.dart';
 import '../widgets/full_block_editor.dart';
 import '../widgets/export_bottom_sheet.dart';
+import 'template_management_page.dart';
 
 // 标签颜色对
 class _TagColor {
@@ -63,6 +64,8 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   late final Stream<List<ContentBlock>> _blocksStream;
   late final Stream<List<AiConversation>> _conversationsStream;
   late final Stream<List<IdeaTask>> _tasksStream;
+  late final Stream<List<AiTemplate>> _templatesStream;
+  late final TemplateRepository _templateRepo;
 
   @override
   void initState() {
@@ -70,6 +73,8 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     _blocksStream = _repo.watchBlocks(widget.payload.id);
     _conversationsStream = _repo.watchConversations(widget.payload.id);
     _tasksStream = _repo.watchTasks(widget.payload.id);
+    _templateRepo = getIt<TemplateRepository>();
+    _templatesStream = _templateRepo.watchEnabled();
     _initContentBlocks();
     _initAiConversations();
     _initTitle();
@@ -377,7 +382,12 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   Future<void> _sendAiMessage() async {
     final text = _aiInputController.text.trim();
     if (text.isEmpty) return;
+    _aiInputController.clear();
+    await _sendPromptToAi(text);
+  }
 
+  /// 核心发送逻辑：模板网格、@ 选择、输入框发送共用
+  Future<void> _sendPromptToAi(String prompt) async {
     // 编辑模式：先删除旧对话
     if (_editingUserConvId != null) {
       await _repo.deleteConversation(_editingUserConvId!);
@@ -388,19 +398,15 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
       _editingPairedAiConvId = null;
     }
 
-    // 保存用户消息
-    await _repo.addConversation(widget.payload.id, 'user', text);
-    _aiInputController.clear();
+    await _repo.addConversation(widget.payload.id, 'user', prompt);
     setState(() => _isAiWorking = true);
 
-    // 构建上下文：所有内容块的内容
     final blocks = await _repo.watchBlocks(widget.payload.id).first;
     final contextText = blocks.map((b) => b.content).join('\n---\n');
 
-    // 发送 AI 请求
     final response = await _ai.chat(
       '用户正在查看一条笔记，内容如下：\n$contextText\n\n请根据用户的问题提供帮助。简洁回答。',
-      text,
+      prompt,
     );
 
     if (mounted) {
@@ -1073,14 +1079,16 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 空状态提示
-                if (conversations.isEmpty)
+                // 空状态 + 模板网格
+                if (conversations.isEmpty) ...[
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),
                     child: Text('所有内容块已作为上下文提供给 AI，开始提问吧',
                         style:
                             TextStyle(fontSize: 12, color: Colors.grey[600])),
                   ),
+                  _buildTemplateGrid(isDark),
+                ],
 
                 // 对话列表
                 ...conversations.map(
@@ -1300,14 +1308,6 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     );
   }
 
-  static const List<String> _aiPresets = [
-    '总结全文要点',
-    '翻译为英文',
-    '润色优化表达',
-    '提取关键信息',
-    '生成内容大纲',
-  ];
-
   Widget _buildAiInputBar(bool isDark) {
     return Padding(
       padding:
@@ -1347,6 +1347,12 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                       maxLines: 4,
                       minLines: 1,
                       textInputAction: TextInputAction.newline,
+                      onChanged: (value) {
+                        if (value.endsWith('@')) {
+                          _showAtMentionOverlay();
+                        }
+                        setState(() {}); // update send button color
+                      },
                       style: TextStyle(
                           fontSize: 14,
                           height: 1.4,
@@ -1390,10 +1396,11 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   }
 
   Widget _buildPresetButton(bool isDark) {
-    return PopupMenuButton<String>(
-      offset: const Offset(0, -300),
-      color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const TemplateManagementPage()),
+      ),
       child: Container(
         width: 36,
         height: 36,
@@ -1401,28 +1408,108 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
           color: isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
           borderRadius: BorderRadius.circular(18),
         ),
-        child: Icon(Icons.tag_rounded,
+        child: Icon(Icons.auto_awesome_rounded,
             size: 18, color: isDark ? Colors.grey[400] : Colors.grey[600]),
       ),
-      onSelected: (value) {
-        _aiInputController.text = value;
-        _sendAiMessage();
-      },
-      itemBuilder: (ctx) => _aiPresets
-          .map((p) => PopupMenuItem(
-                value: p,
-                child: Row(
-                  children: [
-                    Icon(Icons.bolt_rounded,
-                        size: 16,
-                        color: const Color(0xFFFF6B6B).withValues(alpha: 0.7)),
-                    const SizedBox(width: 10),
-                    Text(p, style: const TextStyle(fontSize: 13)),
-                  ],
-                ),
-              ))
-          .toList(),
     );
+  }
+
+  /// 模板网格：无对话时在 AI 区域展示
+  Widget _buildTemplateGrid(bool isDark) {
+    return StreamBuilder<List<AiTemplate>>(
+      stream: _templatesStream,
+      builder: (context, snapshot) {
+        final templates = snapshot.data ?? [];
+        if (templates.isEmpty) return const SizedBox.shrink();
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: templates.map((t) {
+              return GestureDetector(
+                onTap: () => _sendPromptToAi(t.prompt),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? const Color(0xFF2A2A2A)
+                        : const Color(0xFFF0F0F0),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isDark
+                          ? const Color(0xFF3A3A3A)
+                          : const Color(0xFFE0E0E0),
+                      width: 0.5,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(t.icon, style: const TextStyle(fontSize: 16)),
+                      const SizedBox(width: 6),
+                      Text(t.name,
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: isDark
+                                  ? Colors.grey[300]
+                                  : Colors.grey[700])),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  /// @ 唤醒模板选择
+  void _showAtMentionOverlay() async {
+    final templates = await _templatesStream.first;
+    if (templates.isEmpty) return;
+
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+
+    final result = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        16,
+        renderBox.size.height - 260,
+        renderBox.size.width - 16,
+        renderBox.size.height,
+      ),
+      items: templates.map((t) {
+        return PopupMenuItem<String>(
+          value: t.prompt,
+          child: Row(
+            children: [
+              Text(t.icon, style: const TextStyle(fontSize: 16)),
+              const SizedBox(width: 8),
+              Text(t.name, style: const TextStyle(fontSize: 13)),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+
+    if (result != null) {
+      // 替换掉末尾的 @，填入模板 prompt
+      final current = _aiInputController.text;
+      if (current.endsWith('@')) {
+        _aiInputController.text =
+            '${current.substring(0, current.length - 1)}$result';
+      } else {
+        _aiInputController.text = result;
+      }
+      _aiInputController.selection =
+          TextSelection.collapsed(offset: _aiInputController.text.length);
+      _aiInputFocus.requestFocus();
+    }
   }
 
   // ==================== 任务清单 ====================
