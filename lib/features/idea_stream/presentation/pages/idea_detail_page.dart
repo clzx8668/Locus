@@ -52,7 +52,6 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   String _activeAiAction = '';
 
   final Set<int> _expandedTags = {}; // 标签展开状态
-  final Set<int> _editingTags = {}; // 标签编辑状态（长按进入）
 
   late String _currentTitle;
 
@@ -400,17 +399,6 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     final mediaPaths = _parseMediaPaths(block.mediaPaths);
     final isVoice = block.sourceType == 'voice';
     final dateStr = _formatBlockTime(block.createdAt);
-    final isEditing = _editingTags.contains(block.id);
-
-    // 正文区域
-    Widget buildTextArea() {
-      if (block.content.isEmpty) return const SizedBox.shrink();
-      if (isEditing) {
-        return _renderMarkdownPreview(block.content, isDark);
-      }
-      return SelectionArea(
-          child: _renderMarkdownPreview(block.content, isDark));
-    }
 
     return Container(
         margin: const EdgeInsets.only(bottom: 10),
@@ -459,7 +447,8 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             ),
             if (block.content.isNotEmpty) ...[
               const SizedBox(height: 8),
-              buildTextArea(),
+              SelectionArea(
+                  child: _renderMarkdownPreview(block.content, isDark)),
             ],
             // 媒体预览
             if (mediaPaths.isNotEmpty) ...[
@@ -554,8 +543,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   Widget _buildBlockBottomLeft(
       ContentBlock block, ThemeData theme, bool isDark) {
     final tags = _parseTags(block.tags);
-    final isEditing = _editingTags.contains(block.id);
-    final isExpanded = isEditing || _expandedTags.contains(block.id);
+    final isExpanded = _expandedTags.contains(block.id);
     final hasTags = tags.isNotEmpty;
 
     // 估算单个标签的大致宽度：区分 CJK 宽字符与拉丁窄字符
@@ -563,13 +551,11 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
       final display = tag.startsWith('#') ? tag : '#$tag';
       double textWidth = 0;
       for (final codeUnit in display.codeUnits) {
-        // CJK / 全角字符 ≈ fontSize(11)，拉丁/数字 ≈ 7
         textWidth += codeUnit > 0x7F ? 11 : 7;
       }
-      return (12 + textWidth + 4) * 1.08; // padding + text + spacing，8%余量
+      return (12 + textWidth + 4) * 1.08;
     }
 
-    // 计算是否需要展开（标签总宽超过可用宽时）
     bool calcNeedsExpand(double availableWidth) {
       final totalWidth =
           tags.fold<double>(0, (sum, t) => sum + estimateTagWidth(t));
@@ -579,32 +565,11 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     Widget buildTagChip(String tag, {VoidCallback? onToggleExpand}) {
       final displayTag = tag.startsWith('#') ? tag : '#$tag';
       final colorPair = _tagPalette[tag.hashCode.abs() % _tagPalette.length];
-      if (isEditing) {
-        return InputChip(
-          label: Text(displayTag,
-              style: TextStyle(
-                  color: colorPair.fg,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 10)),
-          deleteIcon:
-              const Icon(Icons.close_rounded, size: 10, color: Colors.grey),
-          onDeleted: () {
-            final updated = List<String>.from(tags)..remove(tag);
-            _repo.updateBlockTags(block.id, updated);
-          },
-          backgroundColor: colorPair.bg,
-          side: BorderSide.none,
-          padding: const EdgeInsets.symmetric(horizontal: 2),
-          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-          visualDensity: VisualDensity.compact,
-        );
-      }
-      // 正常状态：轻触展开/折叠，长按进入编辑
       return GestureDetector(
         onTap: onToggleExpand,
         onLongPress: () {
           HapticFeedback.lightImpact();
-          setState(() => _editingTags.add(block.id));
+          _showBlockTagDialog(block, tags);
         },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -621,14 +586,10 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
       );
     }
 
-    // 构建标签行
     Widget buildTagRow(double availableWidth) {
-      // 减掉 AI 图标(~20) + 添加按钮(~32)，剩余才是标签可用宽度
       final tagAreaWidth = availableWidth - 20 - 32;
       final needsExpand = hasTags && calcNeedsExpand(tagAreaWidth);
-      // 仅多行时显示展开/折叠箭头；编辑模式由 + 按钮切换为"完成"
       final showExpandBtn = needsExpand;
-      // 如果显示展开按钮，标签实际可用宽度还要再减按钮宽度(~20)
       final actualWidth = showExpandBtn ? tagAreaWidth - 20 : tagAreaWidth;
       final reallyNeedsExpand = hasTags && calcNeedsExpand(actualWidth);
       const collapsedHeight = 22.0;
@@ -636,7 +597,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
       return Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // AI 润色按钮或已润色图标
+          // AI 润色按钮
           if (!block.aiPolished)
             GestureDetector(
               onTap: _isAiWorking ? null : () => _polishBlock(block),
@@ -682,7 +643,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                   : const SizedBox.shrink(),
             ),
           ),
-          // 展开/折叠按钮（仅多行标签时显示）
+          // 展开/折叠按钮（仅多行时显示）
           if (showExpandBtn)
             GestureDetector(
               onTap: () => setState(() {
@@ -703,21 +664,16 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                 ),
               ),
             ),
-          // 添加标签 / 完成编辑
+          // 添加标签按钮
           ActionChip(
-            label: Text(isEditing ? '完成' : '+',
-                style: TextStyle(
-                    fontSize: 11, color: isEditing ? Colors.white : null)),
-            onPressed: isEditing
-                ? () => setState(() => _editingTags.remove(block.id))
-                : () => _showBlockTagDialog(block, tags),
-            backgroundColor: isEditing
-                ? const Color(0xFFFF6B6B)
-                : (isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5)),
+            label: const Text('+', style: TextStyle(fontSize: 11)),
+            onPressed: () => _showBlockTagDialog(block, tags),
+            backgroundColor:
+                isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
             side: BorderSide.none,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.symmetric(horizontal: isEditing ? 8 : 6),
+            padding: const EdgeInsets.symmetric(horizontal: 6),
           ),
         ],
       );
@@ -742,22 +698,8 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         controller: controller,
         currentTags: currentTags,
         repo: _repo,
-        onConfirm: (String value) {
-          final parts = value
-              .split('#')
-              .map((s) => s.trim())
-              .where((s) => s.isNotEmpty)
-              .toList();
-          if (parts.isEmpty) return;
-
-          final updated = List<String>.from(currentTags);
-          for (final part in parts) {
-            final cleanTag = '#$part';
-            if (!updated.contains(cleanTag)) {
-              updated.add(cleanTag);
-            }
-          }
-          _repo.updateBlockTags(block.id, updated);
+        onConfirm: (List<String> finalTags) {
+          _repo.updateBlockTags(block.id, finalTags);
         },
       ),
     );
@@ -833,74 +775,42 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
           const SizedBox(width: 8),
         ],
       ),
-      body: Builder(
-        builder: (context) {
-          Widget content = SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ===== 内容块区域 =====
-                StreamBuilder<List<ContentBlock>>(
-                  stream: _blocksStream,
-                  builder: (context, snapshot) {
-                    final blocks = snapshot.data ?? [];
-
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // 块标题
-                        if (blocks.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Text('内容记录',
-                                style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.grey[500])),
-                          ),
-
-                        // 渲染所有内容块
-                        ...blocks.map((block) =>
-                            _buildContentBlock(block, theme, isDark)),
-
-                        // 追加内容按钮（始终在最后一个块之后）
-                        const SizedBox(height: 6),
-                        _buildAddBlockButton(isDark, theme),
-                      ],
-                    );
-                  },
-                ),
-
-                const SizedBox(height: 20),
-
-                // ===== AI 对话区域 =====
-                _buildAiSection(theme, isDark),
-
-                const SizedBox(height: 20),
-
-                // ===== 任务清单 =====
-                _buildTaskSection(theme, isDark),
-              ],
-            ),
-          );
-
-          // 标签编辑激活时：整个页面任意点击（除标签删除控件外）退出编辑
-          if (_editingTags.isNotEmpty) {
-            return Listener(
-              behavior: HitTestBehavior.translucent,
-              onPointerDown: (_) {
-                Future.microtask(() {
-                  if (mounted && _editingTags.isNotEmpty) {
-                    setState(() => _editingTags.clear());
-                  }
-                });
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ===== 内容块区域 =====
+            StreamBuilder<List<ContentBlock>>(
+              stream: _blocksStream,
+              builder: (context, snapshot) {
+                final blocks = snapshot.data ?? [];
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (blocks.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text('内容记录',
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey[500])),
+                      ),
+                    ...blocks.map(
+                        (block) => _buildContentBlock(block, theme, isDark)),
+                    const SizedBox(height: 6),
+                    _buildAddBlockButton(isDark, theme),
+                  ],
+                );
               },
-              child: content,
-            );
-          }
-          return content;
-        },
+            ),
+            const SizedBox(height: 20),
+            _buildAiSection(theme, isDark),
+            const SizedBox(height: 20),
+            _buildTaskSection(theme, isDark),
+          ],
+        ),
       ),
       bottomNavigationBar: _buildAiInputBar(isDark),
     );
@@ -1686,12 +1596,12 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   }
 }
 
-/// 标签添加弹窗（带历史标签建议）
+/// 标签管理弹窗（增删改查集中操作）
 class _TagDialog extends StatefulWidget {
   final TextEditingController controller;
   final List<String> currentTags;
   final IdeaRepository repo;
-  final void Function(String value) onConfirm;
+  final void Function(List<String> finalTags) onConfirm;
 
   const _TagDialog({
     required this.controller,
@@ -1708,9 +1618,13 @@ class _TagDialogState extends State<_TagDialog> {
   List<String> _allTags = [];
   bool _loaded = false;
 
+  /// 当前活跃的标签状态：true = 彩色保留，false = 灰色删除
+  late Map<String, bool> _activeTagStates;
+
   @override
   void initState() {
     super.initState();
+    _activeTagStates = {for (final t in widget.currentTags) t: true};
     _loadTags();
   }
 
@@ -1724,36 +1638,70 @@ class _TagDialogState extends State<_TagDialog> {
     }
   }
 
-  /// 点击历史标签，追加到输入框
-  void _appendTag(String tag) {
-    final current = widget.controller.text;
-    final cleanTag = tag.startsWith('#') ? tag.substring(1) : tag;
-    String newText;
-    if (current == '#') {
-      newText = '#$cleanTag';
-    } else if (current.endsWith('#')) {
-      newText = '${current}$cleanTag';
-    } else {
-      newText = '$current#$cleanTag';
+  List<String> get _activeTags => _activeTagStates.keys.toList();
+
+  /// 历史标签中尚未使用的
+  List<String> get _inactiveHistoryTags =>
+      _allTags.where((t) => !_activeTagStates.containsKey(t)).toList();
+
+  /// 点击已使用标签：切换彩色/灰色状态
+  void _toggleActiveTag(String tag) {
+    setState(() {
+      _activeTagStates[tag] = !_activeTagStates[tag]!;
+    });
+  }
+
+  /// 点击历史标签：添加到活跃标签
+  void _addFromHistory(String tag) {
+    if (!_activeTagStates.containsKey(tag)) {
+      setState(() {
+        _activeTagStates[tag] = true;
+      });
     }
-    widget.controller.text = newText;
-    widget.controller.selection =
-        TextSelection.collapsed(offset: newText.length);
+  }
+
+  void _confirmSave() {
+    // 保留彩色状态的标签
+    final keptTags = _activeTagStates.entries
+        .where((e) => e.value)
+        .map((e) => e.key)
+        .toList();
+
+    // 解析输入框中的新标签
+    final inputVal = widget.controller.text.trim();
+    if (inputVal.isNotEmpty && inputVal != '#') {
+      final parts = inputVal
+          .split('#')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      for (final part in parts) {
+        final cleanTag = '#$part';
+        if (!keptTags.contains(cleanTag)) {
+          keptTags.add(cleanTag);
+        }
+      }
+    }
+
+    widget.onConfirm(keptTags);
+    Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final hasActive = _activeTags.isNotEmpty;
+    final historyTags = _inactiveHistoryTags;
 
     return AlertDialog(
-      title: const Text('添加标签'),
+      title: const Text('管理标签'),
       content: SizedBox(
         width: double.maxFinite,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 输入框，默认光标在 # 后面
+            // 输入框
             TextField(
               controller: widget.controller,
               autofocus: true,
@@ -1767,47 +1715,94 @@ class _TagDialogState extends State<_TagDialog> {
                   borderSide: BorderSide.none,
                 ),
               ),
-              onSubmitted: (val) {
-                if (val.trim().isNotEmpty && val != '#') {
-                  widget.onConfirm(val);
-                  Navigator.pop(context);
-                }
-              },
+              onSubmitted: (_) => _confirmSave(),
             ),
-            // 历史标签区域
-            if (_loaded && _allTags.isNotEmpty) ...[
+            // 已使用标签区域
+            if (hasActive) ...[
               const SizedBox(height: 12),
-              Text('历史标签',
+              Text('已使用标签',
                   style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-              const SizedBox(height: 6),
+              const SizedBox(height: 4),
               Wrap(
                 spacing: 6,
                 runSpacing: 6,
-                children: _allTags.map((tag) {
-                  final alreadyAdded = widget.currentTags.contains(tag);
+                children: _activeTags.map((tag) {
+                  final isColored = _activeTagStates[tag] ?? true;
                   final colorPair =
                       _tagPalette[tag.hashCode.abs() % _tagPalette.length];
-                  return ActionChip(
-                    label: Text(tag,
+                  return GestureDetector(
+                    onTap: () => _toggleActiveTag(tag),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isColored
+                            ? colorPair.bg
+                            : (isDark
+                                ? const Color(0xFF3A3A3A)
+                                : const Color(0xFFE0E0E0)),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color:
+                              isColored ? colorPair.bg : Colors.grey.shade400,
+                          width: 0.5,
+                        ),
+                      ),
+                      child: Text(
+                        tag,
                         style: TextStyle(
-                            fontSize: 11,
-                            color:
-                                alreadyAdded ? Colors.grey[500] : colorPair.fg,
-                            fontWeight: FontWeight.w500)),
-                    onPressed: () => _appendTag(tag),
-                    backgroundColor:
-                        alreadyAdded ? Colors.grey[300] : colorPair.bg,
-                    side: BorderSide(
-                        color:
-                            alreadyAdded ? Colors.grey.shade400 : colorPair.bg,
-                        width: 0.5),
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                          fontSize: 11,
+                          color: isColored ? colorPair.fg : Colors.grey[500],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
                   );
                 }).toList(),
               ),
             ],
+            // 历史标签区域（未使用的）
+            if (_loaded && historyTags.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text('历史标签',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: historyTags.map((tag) {
+                  final colorPair =
+                      _tagPalette[tag.hashCode.abs() % _tagPalette.length];
+                  return GestureDetector(
+                    onTap: () => _addFromHistory(tag),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: colorPair.bg,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: colorPair.bg, width: 0.5),
+                      ),
+                      child: Text(
+                        tag,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: colorPair.fg,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+            // 空状态
+            if (_loaded && _allTags.isEmpty && !hasActive)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text('暂无历史标签',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+              ),
           ],
         ),
       ),
@@ -1815,13 +1810,7 @@ class _TagDialogState extends State<_TagDialog> {
         TextButton(
             onPressed: () => Navigator.pop(context), child: const Text('取消')),
         FilledButton(
-          onPressed: () {
-            final val = widget.controller.text.trim();
-            if (val.isNotEmpty && val != '#') {
-              widget.onConfirm(val);
-              Navigator.pop(context);
-            }
-          },
+          onPressed: _confirmSave,
           style:
               FilledButton.styleFrom(backgroundColor: const Color(0xFFFF6B6B)),
           child: const Text('确定', style: TextStyle(color: Colors.white)),
