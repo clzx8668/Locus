@@ -10,6 +10,7 @@ import '../../data/idea_repository.dart';
 import '../widgets/content_block_editor.dart';
 import '../widgets/full_block_editor.dart';
 import '../widgets/export_bottom_sheet.dart';
+import '../widgets/ai_chat_input_box.dart';
 import 'template_management_page.dart';
 
 // 标签颜色对
@@ -53,6 +54,11 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   String _activeAiAction = '';
   final FocusNode _aiInputFocus = FocusNode();
 
+  /// 当前选中的 AI 模型 ID
+  String _selectedModel = '';
+
+  final ScrollController _scrollController = ScrollController();
+
   final Set<int> _expandedTags = {}; // 标签展开状态
 
   /// 编辑模式：正在编辑的用户消息ID，以及其配对的AI回复ID
@@ -75,6 +81,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     _tasksStream = _repo.watchTasks(widget.payload.id);
     _templateRepo = getIt<TemplateRepository>();
     _templatesStream = _templateRepo.watchEnabled();
+    _selectedModel = _ai.modelName;
     _initContentBlocks();
     _initAiConversations();
     _initTitle();
@@ -304,6 +311,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     _newTaskController.dispose();
     _aiInputController.dispose();
     _aiInputFocus.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -383,6 +391,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     final text = _aiInputController.text.trim();
     if (text.isEmpty) return;
     _aiInputController.clear();
+    _aiInputFocus.unfocus();
     await _sendPromptToAi(text);
   }
 
@@ -412,7 +421,78 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     if (mounted) {
       await _repo.addConversation(widget.payload.id, 'assistant', response);
       setState(() => _isAiWorking = false);
+      _scrollToBottom();
     }
+  }
+
+  /// 平滑滚动到页面底部
+  void _scrollToBottom() {
+    if (!_scrollController.hasClients) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  /// 处理附件选择：将选中的文件保存为内容块
+  void _handleAttachmentPicked(List<String> paths) async {
+    for (final path in paths) {
+      // 根据扩展名判断内容块类型
+      final ext = path.split('.').last.toLowerCase();
+      String blockType;
+      switch (ext) {
+        case 'jpg':
+        case 'jpeg':
+        case 'png':
+        case 'gif':
+        case 'webp':
+        case 'bmp':
+          blockType = 'image';
+          break;
+        case 'mp3':
+        case 'wav':
+        case 'aac':
+        case 'm4a':
+        case 'ogg':
+          blockType = 'voice';
+          break;
+        case 'mp4':
+        case 'mov':
+        case 'avi':
+        case 'mkv':
+          blockType = 'video';
+          break;
+        case 'pdf':
+        case 'doc':
+        case 'docx':
+        case 'txt':
+        case 'md':
+          blockType = 'file';
+          break;
+        default:
+          blockType = 'file';
+      }
+      await _repo.addBlock(
+        widget.payload.id,
+        blockType,
+        '',
+        [path],
+        'manual',
+      );
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已添加 ${paths.length} 个附件'),
+        duration: const Duration(seconds: 1),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   /// 查找用户消息配对的 AI 回复 ID
@@ -966,6 +1046,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         ],
       ),
       body: SingleChildScrollView(
+        controller: _scrollController,
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1002,7 +1083,30 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
           ],
         ),
       ),
-      bottomNavigationBar: _buildAiInputBar(isDark),
+      bottomNavigationBar: StreamBuilder<List<AiTemplate>>(
+        stream: _templatesStream,
+        builder: (context, snapshot) {
+          return AiChatInputBox(
+            textController: _aiInputController,
+            focusNode: _aiInputFocus,
+            isAiWorking: _isAiWorking,
+            selectedModel: _selectedModel,
+            templates: snapshot.data ?? [],
+            onSend: _sendAiMessage,
+            onModelChanged: (model) {
+              _ai.setModel(model.id);
+              setState(() => _selectedModel = model.id);
+            },
+            onAttachmentPicked: _handleAttachmentPicked,
+            onTemplateManage: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const TemplateManagementPage(),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -1267,153 +1371,6 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     );
   }
 
-  Widget _buildAiInput(bool isDark) {
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Theme.of(context).dividerColor, width: 1),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _aiInputController,
-              style: const TextStyle(fontSize: 13),
-              decoration: const InputDecoration(
-                hintText: '基于所有内容块进行AI交流...',
-                hintStyle: TextStyle(fontSize: 12),
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(vertical: 8),
-              ),
-              onSubmitted: (_) => _sendAiMessage(),
-            ),
-          ),
-          GestureDetector(
-            onTap: _isAiWorking ? null : _sendAiMessage,
-            child: Container(
-              padding: const EdgeInsets.all(8),
-              decoration: const BoxDecoration(
-                color: Color(0xFFFF6B6B),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(Icons.arrow_upward_rounded,
-                  size: 16, color: Colors.white),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAiInputBar(bool isDark) {
-    return Padding(
-      padding:
-          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: Container(
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
-          border: Border(
-            top: BorderSide(
-                color:
-                    isDark ? const Color(0xFF333333) : const Color(0xFFE0E0E0),
-                width: 0.5),
-          ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                // 预设按钮
-                _buildPresetButton(isDark),
-                const SizedBox(width: 8),
-                // 输入框
-                Expanded(
-                  child: Container(
-                    constraints: const BoxConstraints(maxHeight: 120),
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? const Color(0xFF262626)
-                          : const Color(0xFFF1F3F5),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: TextField(
-                      controller: _aiInputController,
-                      focusNode: _aiInputFocus,
-                      maxLines: 4,
-                      minLines: 1,
-                      textInputAction: TextInputAction.newline,
-                      onChanged: (value) {
-                        if (value.endsWith('@')) {
-                          _showAtMentionOverlay();
-                        }
-                        setState(() {}); // update send button color
-                      },
-                      style: TextStyle(
-                          fontSize: 14,
-                          height: 1.4,
-                          color: isDark ? Colors.white : Colors.black87),
-                      decoration: InputDecoration(
-                        hintText: '与 AI 交流...',
-                        hintStyle: TextStyle(
-                            fontSize: 14,
-                            color:
-                                isDark ? Colors.grey[600] : Colors.grey[500]),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 10),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // 发送按钮
-                GestureDetector(
-                  onTap: _sendAiMessage,
-                  child: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: _aiInputController.text.trim().isEmpty
-                          ? Colors.grey[400]
-                          : const Color(0xFFFF6B6B),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.send_rounded,
-                        size: 16, color: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPresetButton(bool isDark) {
-    return GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const TemplateManagementPage()),
-      ),
-      child: Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Icon(Icons.auto_awesome_rounded,
-            size: 18, color: isDark ? Colors.grey[400] : Colors.grey[600]),
-      ),
-    );
-  }
-
   /// 模板网格：无对话时在 AI 区域展示
   Widget _buildTemplateGrid(bool isDark) {
     return StreamBuilder<List<AiTemplate>>(
@@ -1465,51 +1422,6 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         );
       },
     );
-  }
-
-  /// @ 唤醒模板选择
-  void _showAtMentionOverlay() async {
-    final templates = await _templatesStream.first;
-    if (templates.isEmpty) return;
-
-    final renderBox = context.findRenderObject() as RenderBox?;
-    if (renderBox == null) return;
-
-    final result = await showMenu<String>(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        16,
-        renderBox.size.height - 260,
-        renderBox.size.width - 16,
-        renderBox.size.height,
-      ),
-      items: templates.map((t) {
-        return PopupMenuItem<String>(
-          value: t.prompt,
-          child: Row(
-            children: [
-              Text(t.icon, style: const TextStyle(fontSize: 16)),
-              const SizedBox(width: 8),
-              Text(t.name, style: const TextStyle(fontSize: 13)),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-
-    if (result != null) {
-      // 替换掉末尾的 @，填入模板 prompt
-      final current = _aiInputController.text;
-      if (current.endsWith('@')) {
-        _aiInputController.text =
-            '${current.substring(0, current.length - 1)}$result';
-      } else {
-        _aiInputController.text = result;
-      }
-      _aiInputController.selection =
-          TextSelection.collapsed(offset: _aiInputController.text.length);
-      _aiInputFocus.requestFocus();
-    }
   }
 
   // ==================== 任务清单 ====================

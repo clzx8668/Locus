@@ -4,12 +4,34 @@ import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
+/// 模型信息结构
+class ModelInfo {
+  final String id;
+  final String name;
+  final String provider;
+
+  const ModelInfo({
+    required this.id,
+    required this.name,
+    required this.provider,
+  });
+}
+
 /// AI 通用引擎 —— 封装 LLM 调用，支持流式 / 非流式两种模式
 /// 当前适配 DeepSeek API（兼容 OpenAI 格式）
 class AiEngine {
   final String _apiKey;
-  final String _baseUrl;
-  final String _model;
+  String _baseUrl;
+  String _model;
+
+  /// 可用模型列表（后续可从设置页自定义扩展）
+  static const List<ModelInfo> availableModels = [
+    ModelInfo(id: 'deepseek-chat', name: 'DeepSeek Chat', provider: 'DeepSeek'),
+    ModelInfo(id: 'deepseek-reasoner', name: 'DeepSeek R1', provider: 'DeepSeek'),
+    ModelInfo(id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI'),
+    ModelInfo(id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'OpenAI'),
+    ModelInfo(id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', provider: 'Anthropic'),
+  ];
 
   AiEngine()
       : _apiKey = dotenv.env['LLM_API_KEY'] ?? '',
@@ -17,6 +39,18 @@ class AiEngine {
         _model = dotenv.env['LLM_MODEL_NAME'] ?? 'deepseek-chat';
 
   bool get isConfigured => _apiKey.isNotEmpty;
+
+  /// 当前模型名
+  String get modelName => _model;
+
+  /// 切换模型
+  void setModel(String model) => _model = model;
+
+  /// 获取当前 base URL
+  String get baseUrl => _baseUrl;
+
+  /// 设置 API 端点
+  void setBaseUrl(String url) => _baseUrl = url;
 
   // ==================== 非流式调用 ====================
 

@@ -674,6 +674,19 @@ class AppDatabase extends _$AppDatabase {
 
     return results.map((e) => e.content).join('\n---\n');
   }
+
+  /// 根据指定的知识库文件 ID 列表检索相关上下文
+  Future<String> getRelevantContextForFiles(String query, List<int> fileIds) async {
+    if (fileIds.isEmpty) return "";
+
+    final results = await (select(vectorStorage)
+          ..where((t) =>
+              t.sourceFileId.isIn(fileIds) & t.content.like('%$query%'))
+          ..limit(3))
+        .get();
+
+    return results.map((e) => e.content).join('\n---\n');
+  }
 }
 
 /// 打开并初始化加密数据库连接

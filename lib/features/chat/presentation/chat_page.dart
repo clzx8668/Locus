@@ -6,6 +6,8 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../../../core/di/service_locator.dart';
 import '../../../core/database/database.dart';
+import '../../../core/services/ai_engine.dart';
+import '../../idea_stream/presentation/widgets/ai_chat_input_box.dart';
 import 'chat_history_search_page.dart';
 import '../../memory/presentation/long_term_memory_page.dart';
 
@@ -40,7 +42,28 @@ class _ChatPageState extends State<ChatPage> {
   bool _isAiThinking = false;
   int? _currentSessionId;
 
+  /// 当前选中的模型
+  String _selectedModel = '';
+
+  /// 知识库选择
+  Set<int> _selectedKnowledgeIds = {};
+
+  /// 网页搜索开关
+  bool _isWebSearchEnabled = false;
+
   AppDatabase get db => getIt<AppDatabase>();
+  AiEngine get _ai => getIt<AiEngine>();
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedModel = _ai.modelName;
+    _focusNode.addListener(() {
+      if (_focusNode.hasFocus) {
+        Future.delayed(const Duration(milliseconds: 100), _scrollToBottom);
+      }
+    });
+  }
 
   // ================= RAG 本地知识检索 (模拟左脑 Drift 数据库) =================
   Future<String> _searchLocalKnowledge(String userQuery) async {
@@ -69,13 +92,11 @@ class _ChatPageState extends State<ChatPage> {
       _isAiThinking = true;
     });
 
-    _focusNode.requestFocus();
-    _scrollToBottom();
+    _focusNode.unfocus();
 
     final apiKey = (dotenv.env['LLM_API_KEY'] ?? '').trim();
-    var baseUrl =
-        (dotenv.env['LLM_BASE_URL'] ?? 'https://api.deepseek.com/v1').trim();
-    final modelName = (dotenv.env['LLM_MODEL_NAME'] ?? 'deepseek-chat').trim();
+    var baseUrl = _ai.baseUrl.trim();
+    final modelName = _ai.modelName;
 
     if (baseUrl.endsWith('/')) {
       baseUrl = baseUrl.substring(0, baseUrl.length - 1);
@@ -84,8 +105,14 @@ class _ChatPageState extends State<ChatPage> {
     // 1. 触发左脑知识库检索
     final localContext = await _searchLocalKnowledge(text);
 
-    // 2. 深度阅读引擎：从挂载的资料库中检索相关上下文
-    final ragContext = await db.getRelevantContext(text);
+    // 2. 深度阅读引擎：根据用户选择的知识库筛选 RAG 上下文
+    String ragContext = '';
+    if (_selectedKnowledgeIds.isNotEmpty) {
+      ragContext = await db.getRelevantContextForFiles(text, _selectedKnowledgeIds.toList());
+    } else {
+      // 未选择知识库时，使用全部激活文件
+      ragContext = await db.getRelevantContext(text);
+    }
     if (ragContext.isNotEmpty) {
       debugPrint("RAG 检索命中，上下文长度: ${ragContext.length}");
     }
@@ -109,6 +136,12 @@ class _ChatPageState extends State<ChatPage> {
       systemPrompt +=
           '\n\n【⚠️ 极高优先级：本地知识库检索结果】\n$localContext\n\n请严格基于上述本地知识库的信息来回答用户的问题。';
       debugPrint("已成功向右脑注入本地上下文！");
+    }
+    if (_isWebSearchEnabled) {
+      systemPrompt +=
+          '\n\n【🌐 联网搜索指令】：用户已启用联网搜索功能。请尽可能结合最新的网络信息来回答，'
+          '确保信息的时效性和准确性。如需调用外部搜索，请在回答中以引用格式标注信息来源。';
+      debugPrint("已启用联网搜索模式");
     }
 
     List<Map<String, dynamic>> apiMessages = [
@@ -392,7 +425,44 @@ class _ChatPageState extends State<ChatPage> {
                 ),
               ),
             ),
-          _buildInputArea(isDark),
+          StreamBuilder<List<KnowledgeFile>>(
+            stream: db.watchAllFiles(),
+            builder: (context, snapshot) {
+              return AiChatInputBox(
+                textController: _textController,
+                focusNode: _focusNode,
+                isAiWorking: _isAiThinking,
+                selectedModel: _selectedModel,
+                templates: const [],
+                onSend: _sendMessage,
+                onModelChanged: (model) {
+                  _ai.setModel(model.id);
+                  setState(() => _selectedModel = model.id);
+                },
+                onAttachmentPicked: (_) {},
+                inputConfig: AiInputConfig(
+                  mode: AiInputMode.knowledge,
+                  knowledgeFiles: snapshot.data ?? [],
+                  selectedKnowledgeIds: _selectedKnowledgeIds,
+                  onKnowledgeChanged: (ids) {
+                    setState(() => _selectedKnowledgeIds = ids);
+                  },
+                  isWebSearchEnabled: _isWebSearchEnabled,
+                  onWebSearchChanged: (v) {
+                    setState(() => _isWebSearchEnabled = v);
+                  },
+                  onManageKnowledge: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const LongTermMemoryPage(),
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
         ],
       ),
     );
@@ -497,67 +567,6 @@ class _ChatPageState extends State<ChatPage> {
       radius: 16,
       backgroundColor: bgColor.withValues(alpha: 0.1),
       child: Icon(icon, size: 18, color: bgColor),
-    );
-  }
-
-  Widget _buildInputArea(bool isDark) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        boxShadow: [
-          BoxShadow(
-              color: theme.shadowColor.withValues(alpha: 0.08),
-              offset: const Offset(0, -2),
-              blurRadius: 10)
-        ],
-      ),
-      child: SafeArea(
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _textController,
-                focusNode: _focusNode,
-                maxLines: 4,
-                minLines: 1,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _sendMessage(),
-                style: TextStyle(color: theme.textTheme.bodyLarge?.color),
-                decoration: InputDecoration(
-                  hintText: '向 Locus 提问...',
-                  hintStyle: TextStyle(color: theme.hintColor),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  filled: true,
-                  fillColor: isDark
-                      ? const Color(0xFF262626)
-                      : const Color(0xFFF1F3F5),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: _sendMessage,
-              child: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.arrow_upward,
-                    color: Colors.white, size: 20),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
