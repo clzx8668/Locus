@@ -53,6 +53,42 @@ class $HubPayloadsTable extends HubPayloads
       type: DriftSqlType.int,
       requiredDuringInsert: false,
       defaultValue: const Constant(0));
+  static const VerificationMeta _processingStatusMeta =
+      const VerificationMeta('processingStatus');
+  @override
+  late final GeneratedColumn<String> processingStatus = GeneratedColumn<String>(
+      'processing_status', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('synced_local'));
+  static const VerificationMeta _dispatchedRefMeta =
+      const VerificationMeta('dispatchedRef');
+  @override
+  late final GeneratedColumn<String> dispatchedRef = GeneratedColumn<String>(
+      'dispatched_ref', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _aiEntitiesMeta =
+      const VerificationMeta('aiEntities');
+  @override
+  late final GeneratedColumn<String> aiEntities = GeneratedColumn<String>(
+      'ai_entities', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _isEphemeralMeta =
+      const VerificationMeta('isEphemeral');
+  @override
+  late final GeneratedColumn<bool> isEphemeral = GeneratedColumn<bool>(
+      'is_ephemeral', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints: GeneratedColumn.constraintIsAlways(
+          'CHECK ("is_ephemeral" IN (0, 1))'),
+      defaultValue: const Constant(false));
+  static const VerificationMeta _decayDeadlineMeta =
+      const VerificationMeta('decayDeadline');
+  @override
+  late final GeneratedColumn<DateTime> decayDeadline =
+      GeneratedColumn<DateTime>('decay_deadline', aliasedName, true,
+          type: DriftSqlType.dateTime, requiredDuringInsert: false);
   static const VerificationMeta _createdAtMeta =
       const VerificationMeta('createdAt');
   @override
@@ -62,8 +98,20 @@ class $HubPayloadsTable extends HubPayloads
       requiredDuringInsert: false,
       defaultValue: currentDateAndTime);
   @override
-  List<GeneratedColumn> get $columns =>
-      [id, rawText, mediaPaths, intentTag, title, syncStatus, createdAt];
+  List<GeneratedColumn> get $columns => [
+        id,
+        rawText,
+        mediaPaths,
+        intentTag,
+        title,
+        syncStatus,
+        processingStatus,
+        dispatchedRef,
+        aiEntities,
+        isEphemeral,
+        decayDeadline,
+        createdAt
+      ];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -103,6 +151,36 @@ class $HubPayloadsTable extends HubPayloads
           syncStatus.isAcceptableOrUnknown(
               data['sync_status']!, _syncStatusMeta));
     }
+    if (data.containsKey('processing_status')) {
+      context.handle(
+          _processingStatusMeta,
+          processingStatus.isAcceptableOrUnknown(
+              data['processing_status']!, _processingStatusMeta));
+    }
+    if (data.containsKey('dispatched_ref')) {
+      context.handle(
+          _dispatchedRefMeta,
+          dispatchedRef.isAcceptableOrUnknown(
+              data['dispatched_ref']!, _dispatchedRefMeta));
+    }
+    if (data.containsKey('ai_entities')) {
+      context.handle(
+          _aiEntitiesMeta,
+          aiEntities.isAcceptableOrUnknown(
+              data['ai_entities']!, _aiEntitiesMeta));
+    }
+    if (data.containsKey('is_ephemeral')) {
+      context.handle(
+          _isEphemeralMeta,
+          isEphemeral.isAcceptableOrUnknown(
+              data['is_ephemeral']!, _isEphemeralMeta));
+    }
+    if (data.containsKey('decay_deadline')) {
+      context.handle(
+          _decayDeadlineMeta,
+          decayDeadline.isAcceptableOrUnknown(
+              data['decay_deadline']!, _decayDeadlineMeta));
+    }
     if (data.containsKey('created_at')) {
       context.handle(_createdAtMeta,
           createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
@@ -128,6 +206,16 @@ class $HubPayloadsTable extends HubPayloads
           .read(DriftSqlType.string, data['${effectivePrefix}title']),
       syncStatus: attachedDatabase.typeMapping
           .read(DriftSqlType.int, data['${effectivePrefix}sync_status'])!,
+      processingStatus: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}processing_status'])!,
+      dispatchedRef: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}dispatched_ref']),
+      aiEntities: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}ai_entities']),
+      isEphemeral: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_ephemeral'])!,
+      decayDeadline: attachedDatabase.typeMapping.read(
+          DriftSqlType.dateTime, data['${effectivePrefix}decay_deadline']),
       createdAt: attachedDatabase.typeMapping
           .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
     );
@@ -146,6 +234,21 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
   final String intentTag;
   final String? title;
   final int syncStatus;
+
+  /// 处理流水线状态：synced_local / vector_checking / ai_routing / dispatching / dispatched / failed_retry
+  final String processingStatus;
+
+  /// 分发引用，格式 "table_name:id"，用于双向链接追溯
+  final String? dispatchedRef;
+
+  /// AI 路由抽取的实体 JSON 快照
+  final String? aiEntities;
+
+  /// 是否标记为日常废话（触发衰减）
+  final bool isEphemeral;
+
+  /// 废话衰减到期时间（创建后 48h）
+  final DateTime? decayDeadline;
   final DateTime createdAt;
   const HubPayload(
       {required this.id,
@@ -154,6 +257,11 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
       required this.intentTag,
       this.title,
       required this.syncStatus,
+      required this.processingStatus,
+      this.dispatchedRef,
+      this.aiEntities,
+      required this.isEphemeral,
+      this.decayDeadline,
       required this.createdAt});
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -166,6 +274,17 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
       map['title'] = Variable<String>(title);
     }
     map['sync_status'] = Variable<int>(syncStatus);
+    map['processing_status'] = Variable<String>(processingStatus);
+    if (!nullToAbsent || dispatchedRef != null) {
+      map['dispatched_ref'] = Variable<String>(dispatchedRef);
+    }
+    if (!nullToAbsent || aiEntities != null) {
+      map['ai_entities'] = Variable<String>(aiEntities);
+    }
+    map['is_ephemeral'] = Variable<bool>(isEphemeral);
+    if (!nullToAbsent || decayDeadline != null) {
+      map['decay_deadline'] = Variable<DateTime>(decayDeadline);
+    }
     map['created_at'] = Variable<DateTime>(createdAt);
     return map;
   }
@@ -179,6 +298,17 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
       title:
           title == null && nullToAbsent ? const Value.absent() : Value(title),
       syncStatus: Value(syncStatus),
+      processingStatus: Value(processingStatus),
+      dispatchedRef: dispatchedRef == null && nullToAbsent
+          ? const Value.absent()
+          : Value(dispatchedRef),
+      aiEntities: aiEntities == null && nullToAbsent
+          ? const Value.absent()
+          : Value(aiEntities),
+      isEphemeral: Value(isEphemeral),
+      decayDeadline: decayDeadline == null && nullToAbsent
+          ? const Value.absent()
+          : Value(decayDeadline),
       createdAt: Value(createdAt),
     );
   }
@@ -193,6 +323,11 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
       intentTag: serializer.fromJson<String>(json['intentTag']),
       title: serializer.fromJson<String?>(json['title']),
       syncStatus: serializer.fromJson<int>(json['syncStatus']),
+      processingStatus: serializer.fromJson<String>(json['processingStatus']),
+      dispatchedRef: serializer.fromJson<String?>(json['dispatchedRef']),
+      aiEntities: serializer.fromJson<String?>(json['aiEntities']),
+      isEphemeral: serializer.fromJson<bool>(json['isEphemeral']),
+      decayDeadline: serializer.fromJson<DateTime?>(json['decayDeadline']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
     );
   }
@@ -206,6 +341,11 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
       'intentTag': serializer.toJson<String>(intentTag),
       'title': serializer.toJson<String?>(title),
       'syncStatus': serializer.toJson<int>(syncStatus),
+      'processingStatus': serializer.toJson<String>(processingStatus),
+      'dispatchedRef': serializer.toJson<String?>(dispatchedRef),
+      'aiEntities': serializer.toJson<String?>(aiEntities),
+      'isEphemeral': serializer.toJson<bool>(isEphemeral),
+      'decayDeadline': serializer.toJson<DateTime?>(decayDeadline),
       'createdAt': serializer.toJson<DateTime>(createdAt),
     };
   }
@@ -217,6 +357,11 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
           String? intentTag,
           Value<String?> title = const Value.absent(),
           int? syncStatus,
+          String? processingStatus,
+          Value<String?> dispatchedRef = const Value.absent(),
+          Value<String?> aiEntities = const Value.absent(),
+          bool? isEphemeral,
+          Value<DateTime?> decayDeadline = const Value.absent(),
           DateTime? createdAt}) =>
       HubPayload(
         id: id ?? this.id,
@@ -225,6 +370,13 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
         intentTag: intentTag ?? this.intentTag,
         title: title.present ? title.value : this.title,
         syncStatus: syncStatus ?? this.syncStatus,
+        processingStatus: processingStatus ?? this.processingStatus,
+        dispatchedRef:
+            dispatchedRef.present ? dispatchedRef.value : this.dispatchedRef,
+        aiEntities: aiEntities.present ? aiEntities.value : this.aiEntities,
+        isEphemeral: isEphemeral ?? this.isEphemeral,
+        decayDeadline:
+            decayDeadline.present ? decayDeadline.value : this.decayDeadline,
         createdAt: createdAt ?? this.createdAt,
       );
   HubPayload copyWithCompanion(HubPayloadsCompanion data) {
@@ -237,6 +389,19 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
       title: data.title.present ? data.title.value : this.title,
       syncStatus:
           data.syncStatus.present ? data.syncStatus.value : this.syncStatus,
+      processingStatus: data.processingStatus.present
+          ? data.processingStatus.value
+          : this.processingStatus,
+      dispatchedRef: data.dispatchedRef.present
+          ? data.dispatchedRef.value
+          : this.dispatchedRef,
+      aiEntities:
+          data.aiEntities.present ? data.aiEntities.value : this.aiEntities,
+      isEphemeral:
+          data.isEphemeral.present ? data.isEphemeral.value : this.isEphemeral,
+      decayDeadline: data.decayDeadline.present
+          ? data.decayDeadline.value
+          : this.decayDeadline,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -250,6 +415,11 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
           ..write('intentTag: $intentTag, ')
           ..write('title: $title, ')
           ..write('syncStatus: $syncStatus, ')
+          ..write('processingStatus: $processingStatus, ')
+          ..write('dispatchedRef: $dispatchedRef, ')
+          ..write('aiEntities: $aiEntities, ')
+          ..write('isEphemeral: $isEphemeral, ')
+          ..write('decayDeadline: $decayDeadline, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -257,7 +427,18 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
 
   @override
   int get hashCode => Object.hash(
-      id, rawText, mediaPaths, intentTag, title, syncStatus, createdAt);
+      id,
+      rawText,
+      mediaPaths,
+      intentTag,
+      title,
+      syncStatus,
+      processingStatus,
+      dispatchedRef,
+      aiEntities,
+      isEphemeral,
+      decayDeadline,
+      createdAt);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -268,6 +449,11 @@ class HubPayload extends DataClass implements Insertable<HubPayload> {
           other.intentTag == this.intentTag &&
           other.title == this.title &&
           other.syncStatus == this.syncStatus &&
+          other.processingStatus == this.processingStatus &&
+          other.dispatchedRef == this.dispatchedRef &&
+          other.aiEntities == this.aiEntities &&
+          other.isEphemeral == this.isEphemeral &&
+          other.decayDeadline == this.decayDeadline &&
           other.createdAt == this.createdAt);
 }
 
@@ -278,6 +464,11 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
   final Value<String> intentTag;
   final Value<String?> title;
   final Value<int> syncStatus;
+  final Value<String> processingStatus;
+  final Value<String?> dispatchedRef;
+  final Value<String?> aiEntities;
+  final Value<bool> isEphemeral;
+  final Value<DateTime?> decayDeadline;
   final Value<DateTime> createdAt;
   const HubPayloadsCompanion({
     this.id = const Value.absent(),
@@ -286,6 +477,11 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
     this.intentTag = const Value.absent(),
     this.title = const Value.absent(),
     this.syncStatus = const Value.absent(),
+    this.processingStatus = const Value.absent(),
+    this.dispatchedRef = const Value.absent(),
+    this.aiEntities = const Value.absent(),
+    this.isEphemeral = const Value.absent(),
+    this.decayDeadline = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
   HubPayloadsCompanion.insert({
@@ -295,6 +491,11 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
     this.intentTag = const Value.absent(),
     this.title = const Value.absent(),
     this.syncStatus = const Value.absent(),
+    this.processingStatus = const Value.absent(),
+    this.dispatchedRef = const Value.absent(),
+    this.aiEntities = const Value.absent(),
+    this.isEphemeral = const Value.absent(),
+    this.decayDeadline = const Value.absent(),
     this.createdAt = const Value.absent(),
   }) : rawText = Value(rawText);
   static Insertable<HubPayload> custom({
@@ -304,6 +505,11 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
     Expression<String>? intentTag,
     Expression<String>? title,
     Expression<int>? syncStatus,
+    Expression<String>? processingStatus,
+    Expression<String>? dispatchedRef,
+    Expression<String>? aiEntities,
+    Expression<bool>? isEphemeral,
+    Expression<DateTime>? decayDeadline,
     Expression<DateTime>? createdAt,
   }) {
     return RawValuesInsertable({
@@ -313,6 +519,11 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
       if (intentTag != null) 'intent_tag': intentTag,
       if (title != null) 'title': title,
       if (syncStatus != null) 'sync_status': syncStatus,
+      if (processingStatus != null) 'processing_status': processingStatus,
+      if (dispatchedRef != null) 'dispatched_ref': dispatchedRef,
+      if (aiEntities != null) 'ai_entities': aiEntities,
+      if (isEphemeral != null) 'is_ephemeral': isEphemeral,
+      if (decayDeadline != null) 'decay_deadline': decayDeadline,
       if (createdAt != null) 'created_at': createdAt,
     });
   }
@@ -324,6 +535,11 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
       Value<String>? intentTag,
       Value<String?>? title,
       Value<int>? syncStatus,
+      Value<String>? processingStatus,
+      Value<String?>? dispatchedRef,
+      Value<String?>? aiEntities,
+      Value<bool>? isEphemeral,
+      Value<DateTime?>? decayDeadline,
       Value<DateTime>? createdAt}) {
     return HubPayloadsCompanion(
       id: id ?? this.id,
@@ -332,6 +548,11 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
       intentTag: intentTag ?? this.intentTag,
       title: title ?? this.title,
       syncStatus: syncStatus ?? this.syncStatus,
+      processingStatus: processingStatus ?? this.processingStatus,
+      dispatchedRef: dispatchedRef ?? this.dispatchedRef,
+      aiEntities: aiEntities ?? this.aiEntities,
+      isEphemeral: isEphemeral ?? this.isEphemeral,
+      decayDeadline: decayDeadline ?? this.decayDeadline,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -357,6 +578,21 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
     if (syncStatus.present) {
       map['sync_status'] = Variable<int>(syncStatus.value);
     }
+    if (processingStatus.present) {
+      map['processing_status'] = Variable<String>(processingStatus.value);
+    }
+    if (dispatchedRef.present) {
+      map['dispatched_ref'] = Variable<String>(dispatchedRef.value);
+    }
+    if (aiEntities.present) {
+      map['ai_entities'] = Variable<String>(aiEntities.value);
+    }
+    if (isEphemeral.present) {
+      map['is_ephemeral'] = Variable<bool>(isEphemeral.value);
+    }
+    if (decayDeadline.present) {
+      map['decay_deadline'] = Variable<DateTime>(decayDeadline.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
@@ -372,6 +608,11 @@ class HubPayloadsCompanion extends UpdateCompanion<HubPayload> {
           ..write('intentTag: $intentTag, ')
           ..write('title: $title, ')
           ..write('syncStatus: $syncStatus, ')
+          ..write('processingStatus: $processingStatus, ')
+          ..write('dispatchedRef: $dispatchedRef, ')
+          ..write('aiEntities: $aiEntities, ')
+          ..write('isEphemeral: $isEphemeral, ')
+          ..write('decayDeadline: $decayDeadline, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -3338,6 +3579,1311 @@ class AiTemplatesCompanion extends UpdateCompanion<AiTemplate> {
   }
 }
 
+class $CrmCustomersTable extends CrmCustomers
+    with TableInfo<$CrmCustomersTable, CrmCustomer> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CrmCustomersTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _sourcePayloadIdMeta =
+      const VerificationMeta('sourcePayloadId');
+  @override
+  late final GeneratedColumn<int> sourcePayloadId = GeneratedColumn<int>(
+      'source_payload_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('REFERENCES hub_payloads (id)'));
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+      'name', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _companyMeta =
+      const VerificationMeta('company');
+  @override
+  late final GeneratedColumn<String> company = GeneratedColumn<String>(
+      'company', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _contactMeta =
+      const VerificationMeta('contact');
+  @override
+  late final GeneratedColumn<String> contact = GeneratedColumn<String>(
+      'contact', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _tagsMeta = const VerificationMeta('tags');
+  @override
+  late final GeneratedColumn<String> tags = GeneratedColumn<String>(
+      'tags', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('[]'));
+  static const VerificationMeta _notesMeta = const VerificationMeta('notes');
+  @override
+  late final GeneratedColumn<String> notes = GeneratedColumn<String>(
+      'notes', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  static const VerificationMeta _updatedAtMeta =
+      const VerificationMeta('updatedAt');
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+      'updated_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        sourcePayloadId,
+        name,
+        company,
+        contact,
+        tags,
+        notes,
+        createdAt,
+        updatedAt
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'crm_customers';
+  @override
+  VerificationContext validateIntegrity(Insertable<CrmCustomer> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('source_payload_id')) {
+      context.handle(
+          _sourcePayloadIdMeta,
+          sourcePayloadId.isAcceptableOrUnknown(
+              data['source_payload_id']!, _sourcePayloadIdMeta));
+    } else if (isInserting) {
+      context.missing(_sourcePayloadIdMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+          _nameMeta, name.isAcceptableOrUnknown(data['name']!, _nameMeta));
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('company')) {
+      context.handle(_companyMeta,
+          company.isAcceptableOrUnknown(data['company']!, _companyMeta));
+    }
+    if (data.containsKey('contact')) {
+      context.handle(_contactMeta,
+          contact.isAcceptableOrUnknown(data['contact']!, _contactMeta));
+    }
+    if (data.containsKey('tags')) {
+      context.handle(
+          _tagsMeta, tags.isAcceptableOrUnknown(data['tags']!, _tagsMeta));
+    }
+    if (data.containsKey('notes')) {
+      context.handle(
+          _notesMeta, notes.isAcceptableOrUnknown(data['notes']!, _notesMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(_updatedAtMeta,
+          updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  CrmCustomer map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CrmCustomer(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      sourcePayloadId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}source_payload_id'])!,
+      name: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}name'])!,
+      company: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}company']),
+      contact: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}contact']),
+      tags: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}tags'])!,
+      notes: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}notes']),
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+      updatedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
+    );
+  }
+
+  @override
+  $CrmCustomersTable createAlias(String alias) {
+    return $CrmCustomersTable(attachedDatabase, alias);
+  }
+}
+
+class CrmCustomer extends DataClass implements Insertable<CrmCustomer> {
+  final int id;
+  final int sourcePayloadId;
+  final String name;
+  final String? company;
+  final String? contact;
+  final String tags;
+  final String? notes;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  const CrmCustomer(
+      {required this.id,
+      required this.sourcePayloadId,
+      required this.name,
+      this.company,
+      this.contact,
+      required this.tags,
+      this.notes,
+      required this.createdAt,
+      required this.updatedAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['source_payload_id'] = Variable<int>(sourcePayloadId);
+    map['name'] = Variable<String>(name);
+    if (!nullToAbsent || company != null) {
+      map['company'] = Variable<String>(company);
+    }
+    if (!nullToAbsent || contact != null) {
+      map['contact'] = Variable<String>(contact);
+    }
+    map['tags'] = Variable<String>(tags);
+    if (!nullToAbsent || notes != null) {
+      map['notes'] = Variable<String>(notes);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  CrmCustomersCompanion toCompanion(bool nullToAbsent) {
+    return CrmCustomersCompanion(
+      id: Value(id),
+      sourcePayloadId: Value(sourcePayloadId),
+      name: Value(name),
+      company: company == null && nullToAbsent
+          ? const Value.absent()
+          : Value(company),
+      contact: contact == null && nullToAbsent
+          ? const Value.absent()
+          : Value(contact),
+      tags: Value(tags),
+      notes:
+          notes == null && nullToAbsent ? const Value.absent() : Value(notes),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory CrmCustomer.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CrmCustomer(
+      id: serializer.fromJson<int>(json['id']),
+      sourcePayloadId: serializer.fromJson<int>(json['sourcePayloadId']),
+      name: serializer.fromJson<String>(json['name']),
+      company: serializer.fromJson<String?>(json['company']),
+      contact: serializer.fromJson<String?>(json['contact']),
+      tags: serializer.fromJson<String>(json['tags']),
+      notes: serializer.fromJson<String?>(json['notes']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'sourcePayloadId': serializer.toJson<int>(sourcePayloadId),
+      'name': serializer.toJson<String>(name),
+      'company': serializer.toJson<String?>(company),
+      'contact': serializer.toJson<String?>(contact),
+      'tags': serializer.toJson<String>(tags),
+      'notes': serializer.toJson<String?>(notes),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+
+  CrmCustomer copyWith(
+          {int? id,
+          int? sourcePayloadId,
+          String? name,
+          Value<String?> company = const Value.absent(),
+          Value<String?> contact = const Value.absent(),
+          String? tags,
+          Value<String?> notes = const Value.absent(),
+          DateTime? createdAt,
+          DateTime? updatedAt}) =>
+      CrmCustomer(
+        id: id ?? this.id,
+        sourcePayloadId: sourcePayloadId ?? this.sourcePayloadId,
+        name: name ?? this.name,
+        company: company.present ? company.value : this.company,
+        contact: contact.present ? contact.value : this.contact,
+        tags: tags ?? this.tags,
+        notes: notes.present ? notes.value : this.notes,
+        createdAt: createdAt ?? this.createdAt,
+        updatedAt: updatedAt ?? this.updatedAt,
+      );
+  CrmCustomer copyWithCompanion(CrmCustomersCompanion data) {
+    return CrmCustomer(
+      id: data.id.present ? data.id.value : this.id,
+      sourcePayloadId: data.sourcePayloadId.present
+          ? data.sourcePayloadId.value
+          : this.sourcePayloadId,
+      name: data.name.present ? data.name.value : this.name,
+      company: data.company.present ? data.company.value : this.company,
+      contact: data.contact.present ? data.contact.value : this.contact,
+      tags: data.tags.present ? data.tags.value : this.tags,
+      notes: data.notes.present ? data.notes.value : this.notes,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CrmCustomer(')
+          ..write('id: $id, ')
+          ..write('sourcePayloadId: $sourcePayloadId, ')
+          ..write('name: $name, ')
+          ..write('company: $company, ')
+          ..write('contact: $contact, ')
+          ..write('tags: $tags, ')
+          ..write('notes: $notes, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, sourcePayloadId, name, company, contact,
+      tags, notes, createdAt, updatedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CrmCustomer &&
+          other.id == this.id &&
+          other.sourcePayloadId == this.sourcePayloadId &&
+          other.name == this.name &&
+          other.company == this.company &&
+          other.contact == this.contact &&
+          other.tags == this.tags &&
+          other.notes == this.notes &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt);
+}
+
+class CrmCustomersCompanion extends UpdateCompanion<CrmCustomer> {
+  final Value<int> id;
+  final Value<int> sourcePayloadId;
+  final Value<String> name;
+  final Value<String?> company;
+  final Value<String?> contact;
+  final Value<String> tags;
+  final Value<String?> notes;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  const CrmCustomersCompanion({
+    this.id = const Value.absent(),
+    this.sourcePayloadId = const Value.absent(),
+    this.name = const Value.absent(),
+    this.company = const Value.absent(),
+    this.contact = const Value.absent(),
+    this.tags = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+  CrmCustomersCompanion.insert({
+    this.id = const Value.absent(),
+    required int sourcePayloadId,
+    required String name,
+    this.company = const Value.absent(),
+    this.contact = const Value.absent(),
+    this.tags = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  })  : sourcePayloadId = Value(sourcePayloadId),
+        name = Value(name);
+  static Insertable<CrmCustomer> custom({
+    Expression<int>? id,
+    Expression<int>? sourcePayloadId,
+    Expression<String>? name,
+    Expression<String>? company,
+    Expression<String>? contact,
+    Expression<String>? tags,
+    Expression<String>? notes,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (sourcePayloadId != null) 'source_payload_id': sourcePayloadId,
+      if (name != null) 'name': name,
+      if (company != null) 'company': company,
+      if (contact != null) 'contact': contact,
+      if (tags != null) 'tags': tags,
+      if (notes != null) 'notes': notes,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    });
+  }
+
+  CrmCustomersCompanion copyWith(
+      {Value<int>? id,
+      Value<int>? sourcePayloadId,
+      Value<String>? name,
+      Value<String?>? company,
+      Value<String?>? contact,
+      Value<String>? tags,
+      Value<String?>? notes,
+      Value<DateTime>? createdAt,
+      Value<DateTime>? updatedAt}) {
+    return CrmCustomersCompanion(
+      id: id ?? this.id,
+      sourcePayloadId: sourcePayloadId ?? this.sourcePayloadId,
+      name: name ?? this.name,
+      company: company ?? this.company,
+      contact: contact ?? this.contact,
+      tags: tags ?? this.tags,
+      notes: notes ?? this.notes,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (sourcePayloadId.present) {
+      map['source_payload_id'] = Variable<int>(sourcePayloadId.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (company.present) {
+      map['company'] = Variable<String>(company.value);
+    }
+    if (contact.present) {
+      map['contact'] = Variable<String>(contact.value);
+    }
+    if (tags.present) {
+      map['tags'] = Variable<String>(tags.value);
+    }
+    if (notes.present) {
+      map['notes'] = Variable<String>(notes.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CrmCustomersCompanion(')
+          ..write('id: $id, ')
+          ..write('sourcePayloadId: $sourcePayloadId, ')
+          ..write('name: $name, ')
+          ..write('company: $company, ')
+          ..write('contact: $contact, ')
+          ..write('tags: $tags, ')
+          ..write('notes: $notes, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $LedgerEntriesTable extends LedgerEntries
+    with TableInfo<$LedgerEntriesTable, LedgerEntry> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $LedgerEntriesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _sourcePayloadIdMeta =
+      const VerificationMeta('sourcePayloadId');
+  @override
+  late final GeneratedColumn<int> sourcePayloadId = GeneratedColumn<int>(
+      'source_payload_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('REFERENCES hub_payloads (id)'));
+  static const VerificationMeta _amountMeta = const VerificationMeta('amount');
+  @override
+  late final GeneratedColumn<double> amount = GeneratedColumn<double>(
+      'amount', aliasedName, false,
+      type: DriftSqlType.double, requiredDuringInsert: true);
+  static const VerificationMeta _categoryMeta =
+      const VerificationMeta('category');
+  @override
+  late final GeneratedColumn<String> category = GeneratedColumn<String>(
+      'category', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _typeMeta = const VerificationMeta('type');
+  @override
+  late final GeneratedColumn<String> type = GeneratedColumn<String>(
+      'type', aliasedName, false,
+      type: DriftSqlType.string,
+      requiredDuringInsert: false,
+      defaultValue: const Constant('expense'));
+  static const VerificationMeta _descriptionMeta =
+      const VerificationMeta('description');
+  @override
+  late final GeneratedColumn<String> description = GeneratedColumn<String>(
+      'description', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _occurredAtMeta =
+      const VerificationMeta('occurredAt');
+  @override
+  late final GeneratedColumn<DateTime> occurredAt = GeneratedColumn<DateTime>(
+      'occurred_at', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        sourcePayloadId,
+        amount,
+        category,
+        type,
+        description,
+        occurredAt,
+        createdAt
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'ledger_entries';
+  @override
+  VerificationContext validateIntegrity(Insertable<LedgerEntry> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('source_payload_id')) {
+      context.handle(
+          _sourcePayloadIdMeta,
+          sourcePayloadId.isAcceptableOrUnknown(
+              data['source_payload_id']!, _sourcePayloadIdMeta));
+    } else if (isInserting) {
+      context.missing(_sourcePayloadIdMeta);
+    }
+    if (data.containsKey('amount')) {
+      context.handle(_amountMeta,
+          amount.isAcceptableOrUnknown(data['amount']!, _amountMeta));
+    } else if (isInserting) {
+      context.missing(_amountMeta);
+    }
+    if (data.containsKey('category')) {
+      context.handle(_categoryMeta,
+          category.isAcceptableOrUnknown(data['category']!, _categoryMeta));
+    } else if (isInserting) {
+      context.missing(_categoryMeta);
+    }
+    if (data.containsKey('type')) {
+      context.handle(
+          _typeMeta, type.isAcceptableOrUnknown(data['type']!, _typeMeta));
+    }
+    if (data.containsKey('description')) {
+      context.handle(
+          _descriptionMeta,
+          description.isAcceptableOrUnknown(
+              data['description']!, _descriptionMeta));
+    }
+    if (data.containsKey('occurred_at')) {
+      context.handle(
+          _occurredAtMeta,
+          occurredAt.isAcceptableOrUnknown(
+              data['occurred_at']!, _occurredAtMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  LedgerEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return LedgerEntry(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      sourcePayloadId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}source_payload_id'])!,
+      amount: attachedDatabase.typeMapping
+          .read(DriftSqlType.double, data['${effectivePrefix}amount'])!,
+      category: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}category'])!,
+      type: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}type'])!,
+      description: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}description']),
+      occurredAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}occurred_at']),
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+    );
+  }
+
+  @override
+  $LedgerEntriesTable createAlias(String alias) {
+    return $LedgerEntriesTable(attachedDatabase, alias);
+  }
+}
+
+class LedgerEntry extends DataClass implements Insertable<LedgerEntry> {
+  final int id;
+  final int sourcePayloadId;
+  final double amount;
+  final String category;
+  final String type;
+  final String? description;
+  final DateTime? occurredAt;
+  final DateTime createdAt;
+  const LedgerEntry(
+      {required this.id,
+      required this.sourcePayloadId,
+      required this.amount,
+      required this.category,
+      required this.type,
+      this.description,
+      this.occurredAt,
+      required this.createdAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['source_payload_id'] = Variable<int>(sourcePayloadId);
+    map['amount'] = Variable<double>(amount);
+    map['category'] = Variable<String>(category);
+    map['type'] = Variable<String>(type);
+    if (!nullToAbsent || description != null) {
+      map['description'] = Variable<String>(description);
+    }
+    if (!nullToAbsent || occurredAt != null) {
+      map['occurred_at'] = Variable<DateTime>(occurredAt);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  LedgerEntriesCompanion toCompanion(bool nullToAbsent) {
+    return LedgerEntriesCompanion(
+      id: Value(id),
+      sourcePayloadId: Value(sourcePayloadId),
+      amount: Value(amount),
+      category: Value(category),
+      type: Value(type),
+      description: description == null && nullToAbsent
+          ? const Value.absent()
+          : Value(description),
+      occurredAt: occurredAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(occurredAt),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory LedgerEntry.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return LedgerEntry(
+      id: serializer.fromJson<int>(json['id']),
+      sourcePayloadId: serializer.fromJson<int>(json['sourcePayloadId']),
+      amount: serializer.fromJson<double>(json['amount']),
+      category: serializer.fromJson<String>(json['category']),
+      type: serializer.fromJson<String>(json['type']),
+      description: serializer.fromJson<String?>(json['description']),
+      occurredAt: serializer.fromJson<DateTime?>(json['occurredAt']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'sourcePayloadId': serializer.toJson<int>(sourcePayloadId),
+      'amount': serializer.toJson<double>(amount),
+      'category': serializer.toJson<String>(category),
+      'type': serializer.toJson<String>(type),
+      'description': serializer.toJson<String?>(description),
+      'occurredAt': serializer.toJson<DateTime?>(occurredAt),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  LedgerEntry copyWith(
+          {int? id,
+          int? sourcePayloadId,
+          double? amount,
+          String? category,
+          String? type,
+          Value<String?> description = const Value.absent(),
+          Value<DateTime?> occurredAt = const Value.absent(),
+          DateTime? createdAt}) =>
+      LedgerEntry(
+        id: id ?? this.id,
+        sourcePayloadId: sourcePayloadId ?? this.sourcePayloadId,
+        amount: amount ?? this.amount,
+        category: category ?? this.category,
+        type: type ?? this.type,
+        description: description.present ? description.value : this.description,
+        occurredAt: occurredAt.present ? occurredAt.value : this.occurredAt,
+        createdAt: createdAt ?? this.createdAt,
+      );
+  LedgerEntry copyWithCompanion(LedgerEntriesCompanion data) {
+    return LedgerEntry(
+      id: data.id.present ? data.id.value : this.id,
+      sourcePayloadId: data.sourcePayloadId.present
+          ? data.sourcePayloadId.value
+          : this.sourcePayloadId,
+      amount: data.amount.present ? data.amount.value : this.amount,
+      category: data.category.present ? data.category.value : this.category,
+      type: data.type.present ? data.type.value : this.type,
+      description:
+          data.description.present ? data.description.value : this.description,
+      occurredAt:
+          data.occurredAt.present ? data.occurredAt.value : this.occurredAt,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LedgerEntry(')
+          ..write('id: $id, ')
+          ..write('sourcePayloadId: $sourcePayloadId, ')
+          ..write('amount: $amount, ')
+          ..write('category: $category, ')
+          ..write('type: $type, ')
+          ..write('description: $description, ')
+          ..write('occurredAt: $occurredAt, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, sourcePayloadId, amount, category, type,
+      description, occurredAt, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is LedgerEntry &&
+          other.id == this.id &&
+          other.sourcePayloadId == this.sourcePayloadId &&
+          other.amount == this.amount &&
+          other.category == this.category &&
+          other.type == this.type &&
+          other.description == this.description &&
+          other.occurredAt == this.occurredAt &&
+          other.createdAt == this.createdAt);
+}
+
+class LedgerEntriesCompanion extends UpdateCompanion<LedgerEntry> {
+  final Value<int> id;
+  final Value<int> sourcePayloadId;
+  final Value<double> amount;
+  final Value<String> category;
+  final Value<String> type;
+  final Value<String?> description;
+  final Value<DateTime?> occurredAt;
+  final Value<DateTime> createdAt;
+  const LedgerEntriesCompanion({
+    this.id = const Value.absent(),
+    this.sourcePayloadId = const Value.absent(),
+    this.amount = const Value.absent(),
+    this.category = const Value.absent(),
+    this.type = const Value.absent(),
+    this.description = const Value.absent(),
+    this.occurredAt = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  LedgerEntriesCompanion.insert({
+    this.id = const Value.absent(),
+    required int sourcePayloadId,
+    required double amount,
+    required String category,
+    this.type = const Value.absent(),
+    this.description = const Value.absent(),
+    this.occurredAt = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  })  : sourcePayloadId = Value(sourcePayloadId),
+        amount = Value(amount),
+        category = Value(category);
+  static Insertable<LedgerEntry> custom({
+    Expression<int>? id,
+    Expression<int>? sourcePayloadId,
+    Expression<double>? amount,
+    Expression<String>? category,
+    Expression<String>? type,
+    Expression<String>? description,
+    Expression<DateTime>? occurredAt,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (sourcePayloadId != null) 'source_payload_id': sourcePayloadId,
+      if (amount != null) 'amount': amount,
+      if (category != null) 'category': category,
+      if (type != null) 'type': type,
+      if (description != null) 'description': description,
+      if (occurredAt != null) 'occurred_at': occurredAt,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  LedgerEntriesCompanion copyWith(
+      {Value<int>? id,
+      Value<int>? sourcePayloadId,
+      Value<double>? amount,
+      Value<String>? category,
+      Value<String>? type,
+      Value<String?>? description,
+      Value<DateTime?>? occurredAt,
+      Value<DateTime>? createdAt}) {
+    return LedgerEntriesCompanion(
+      id: id ?? this.id,
+      sourcePayloadId: sourcePayloadId ?? this.sourcePayloadId,
+      amount: amount ?? this.amount,
+      category: category ?? this.category,
+      type: type ?? this.type,
+      description: description ?? this.description,
+      occurredAt: occurredAt ?? this.occurredAt,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (sourcePayloadId.present) {
+      map['source_payload_id'] = Variable<int>(sourcePayloadId.value);
+    }
+    if (amount.present) {
+      map['amount'] = Variable<double>(amount.value);
+    }
+    if (category.present) {
+      map['category'] = Variable<String>(category.value);
+    }
+    if (type.present) {
+      map['type'] = Variable<String>(type.value);
+    }
+    if (description.present) {
+      map['description'] = Variable<String>(description.value);
+    }
+    if (occurredAt.present) {
+      map['occurred_at'] = Variable<DateTime>(occurredAt.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LedgerEntriesCompanion(')
+          ..write('id: $id, ')
+          ..write('sourcePayloadId: $sourcePayloadId, ')
+          ..write('amount: $amount, ')
+          ..write('category: $category, ')
+          ..write('type: $type, ')
+          ..write('description: $description, ')
+          ..write('occurredAt: $occurredAt, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $TodoSchedulesTable extends TodoSchedules
+    with TableInfo<$TodoSchedulesTable, TodoSchedule> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TodoSchedulesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+      'id', aliasedName, false,
+      hasAutoIncrement: true,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('PRIMARY KEY AUTOINCREMENT'));
+  static const VerificationMeta _sourcePayloadIdMeta =
+      const VerificationMeta('sourcePayloadId');
+  @override
+  late final GeneratedColumn<int> sourcePayloadId = GeneratedColumn<int>(
+      'source_payload_id', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: true,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('REFERENCES hub_payloads (id)'));
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+      'title', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _dueDateMeta =
+      const VerificationMeta('dueDate');
+  @override
+  late final GeneratedColumn<DateTime> dueDate = GeneratedColumn<DateTime>(
+      'due_date', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
+  static const VerificationMeta _priorityMeta =
+      const VerificationMeta('priority');
+  @override
+  late final GeneratedColumn<int> priority = GeneratedColumn<int>(
+      'priority', aliasedName, false,
+      type: DriftSqlType.int,
+      requiredDuringInsert: false,
+      defaultValue: const Constant(0));
+  static const VerificationMeta _isDoneMeta = const VerificationMeta('isDone');
+  @override
+  late final GeneratedColumn<bool> isDone = GeneratedColumn<bool>(
+      'is_done', aliasedName, false,
+      type: DriftSqlType.bool,
+      requiredDuringInsert: false,
+      defaultConstraints:
+          GeneratedColumn.constraintIsAlways('CHECK ("is_done" IN (0, 1))'),
+      defaultValue: const Constant(false));
+  static const VerificationMeta _notesMeta = const VerificationMeta('notes');
+  @override
+  late final GeneratedColumn<String> notes = GeneratedColumn<String>(
+      'notes', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _createdAtMeta =
+      const VerificationMeta('createdAt');
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+      'created_at', aliasedName, false,
+      type: DriftSqlType.dateTime,
+      requiredDuringInsert: false,
+      defaultValue: currentDateAndTime);
+  @override
+  List<GeneratedColumn> get $columns =>
+      [id, sourcePayloadId, title, dueDate, priority, isDone, notes, createdAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'todo_schedules';
+  @override
+  VerificationContext validateIntegrity(Insertable<TodoSchedule> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('source_payload_id')) {
+      context.handle(
+          _sourcePayloadIdMeta,
+          sourcePayloadId.isAcceptableOrUnknown(
+              data['source_payload_id']!, _sourcePayloadIdMeta));
+    } else if (isInserting) {
+      context.missing(_sourcePayloadIdMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+          _titleMeta, title.isAcceptableOrUnknown(data['title']!, _titleMeta));
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('due_date')) {
+      context.handle(_dueDateMeta,
+          dueDate.isAcceptableOrUnknown(data['due_date']!, _dueDateMeta));
+    }
+    if (data.containsKey('priority')) {
+      context.handle(_priorityMeta,
+          priority.isAcceptableOrUnknown(data['priority']!, _priorityMeta));
+    }
+    if (data.containsKey('is_done')) {
+      context.handle(_isDoneMeta,
+          isDone.isAcceptableOrUnknown(data['is_done']!, _isDoneMeta));
+    }
+    if (data.containsKey('notes')) {
+      context.handle(
+          _notesMeta, notes.isAcceptableOrUnknown(data['notes']!, _notesMeta));
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(_createdAtMeta,
+          createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  TodoSchedule map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TodoSchedule(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}id'])!,
+      sourcePayloadId: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}source_payload_id'])!,
+      title: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}title'])!,
+      dueDate: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}due_date']),
+      priority: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}priority'])!,
+      isDone: attachedDatabase.typeMapping
+          .read(DriftSqlType.bool, data['${effectivePrefix}is_done'])!,
+      notes: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}notes']),
+      createdAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+    );
+  }
+
+  @override
+  $TodoSchedulesTable createAlias(String alias) {
+    return $TodoSchedulesTable(attachedDatabase, alias);
+  }
+}
+
+class TodoSchedule extends DataClass implements Insertable<TodoSchedule> {
+  final int id;
+  final int sourcePayloadId;
+  final String title;
+  final DateTime? dueDate;
+  final int priority;
+  final bool isDone;
+  final String? notes;
+  final DateTime createdAt;
+  const TodoSchedule(
+      {required this.id,
+      required this.sourcePayloadId,
+      required this.title,
+      this.dueDate,
+      required this.priority,
+      required this.isDone,
+      this.notes,
+      required this.createdAt});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['source_payload_id'] = Variable<int>(sourcePayloadId);
+    map['title'] = Variable<String>(title);
+    if (!nullToAbsent || dueDate != null) {
+      map['due_date'] = Variable<DateTime>(dueDate);
+    }
+    map['priority'] = Variable<int>(priority);
+    map['is_done'] = Variable<bool>(isDone);
+    if (!nullToAbsent || notes != null) {
+      map['notes'] = Variable<String>(notes);
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  TodoSchedulesCompanion toCompanion(bool nullToAbsent) {
+    return TodoSchedulesCompanion(
+      id: Value(id),
+      sourcePayloadId: Value(sourcePayloadId),
+      title: Value(title),
+      dueDate: dueDate == null && nullToAbsent
+          ? const Value.absent()
+          : Value(dueDate),
+      priority: Value(priority),
+      isDone: Value(isDone),
+      notes:
+          notes == null && nullToAbsent ? const Value.absent() : Value(notes),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory TodoSchedule.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TodoSchedule(
+      id: serializer.fromJson<int>(json['id']),
+      sourcePayloadId: serializer.fromJson<int>(json['sourcePayloadId']),
+      title: serializer.fromJson<String>(json['title']),
+      dueDate: serializer.fromJson<DateTime?>(json['dueDate']),
+      priority: serializer.fromJson<int>(json['priority']),
+      isDone: serializer.fromJson<bool>(json['isDone']),
+      notes: serializer.fromJson<String?>(json['notes']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'sourcePayloadId': serializer.toJson<int>(sourcePayloadId),
+      'title': serializer.toJson<String>(title),
+      'dueDate': serializer.toJson<DateTime?>(dueDate),
+      'priority': serializer.toJson<int>(priority),
+      'isDone': serializer.toJson<bool>(isDone),
+      'notes': serializer.toJson<String?>(notes),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  TodoSchedule copyWith(
+          {int? id,
+          int? sourcePayloadId,
+          String? title,
+          Value<DateTime?> dueDate = const Value.absent(),
+          int? priority,
+          bool? isDone,
+          Value<String?> notes = const Value.absent(),
+          DateTime? createdAt}) =>
+      TodoSchedule(
+        id: id ?? this.id,
+        sourcePayloadId: sourcePayloadId ?? this.sourcePayloadId,
+        title: title ?? this.title,
+        dueDate: dueDate.present ? dueDate.value : this.dueDate,
+        priority: priority ?? this.priority,
+        isDone: isDone ?? this.isDone,
+        notes: notes.present ? notes.value : this.notes,
+        createdAt: createdAt ?? this.createdAt,
+      );
+  TodoSchedule copyWithCompanion(TodoSchedulesCompanion data) {
+    return TodoSchedule(
+      id: data.id.present ? data.id.value : this.id,
+      sourcePayloadId: data.sourcePayloadId.present
+          ? data.sourcePayloadId.value
+          : this.sourcePayloadId,
+      title: data.title.present ? data.title.value : this.title,
+      dueDate: data.dueDate.present ? data.dueDate.value : this.dueDate,
+      priority: data.priority.present ? data.priority.value : this.priority,
+      isDone: data.isDone.present ? data.isDone.value : this.isDone,
+      notes: data.notes.present ? data.notes.value : this.notes,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TodoSchedule(')
+          ..write('id: $id, ')
+          ..write('sourcePayloadId: $sourcePayloadId, ')
+          ..write('title: $title, ')
+          ..write('dueDate: $dueDate, ')
+          ..write('priority: $priority, ')
+          ..write('isDone: $isDone, ')
+          ..write('notes: $notes, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      id, sourcePayloadId, title, dueDate, priority, isDone, notes, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TodoSchedule &&
+          other.id == this.id &&
+          other.sourcePayloadId == this.sourcePayloadId &&
+          other.title == this.title &&
+          other.dueDate == this.dueDate &&
+          other.priority == this.priority &&
+          other.isDone == this.isDone &&
+          other.notes == this.notes &&
+          other.createdAt == this.createdAt);
+}
+
+class TodoSchedulesCompanion extends UpdateCompanion<TodoSchedule> {
+  final Value<int> id;
+  final Value<int> sourcePayloadId;
+  final Value<String> title;
+  final Value<DateTime?> dueDate;
+  final Value<int> priority;
+  final Value<bool> isDone;
+  final Value<String?> notes;
+  final Value<DateTime> createdAt;
+  const TodoSchedulesCompanion({
+    this.id = const Value.absent(),
+    this.sourcePayloadId = const Value.absent(),
+    this.title = const Value.absent(),
+    this.dueDate = const Value.absent(),
+    this.priority = const Value.absent(),
+    this.isDone = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  TodoSchedulesCompanion.insert({
+    this.id = const Value.absent(),
+    required int sourcePayloadId,
+    required String title,
+    this.dueDate = const Value.absent(),
+    this.priority = const Value.absent(),
+    this.isDone = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  })  : sourcePayloadId = Value(sourcePayloadId),
+        title = Value(title);
+  static Insertable<TodoSchedule> custom({
+    Expression<int>? id,
+    Expression<int>? sourcePayloadId,
+    Expression<String>? title,
+    Expression<DateTime>? dueDate,
+    Expression<int>? priority,
+    Expression<bool>? isDone,
+    Expression<String>? notes,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (sourcePayloadId != null) 'source_payload_id': sourcePayloadId,
+      if (title != null) 'title': title,
+      if (dueDate != null) 'due_date': dueDate,
+      if (priority != null) 'priority': priority,
+      if (isDone != null) 'is_done': isDone,
+      if (notes != null) 'notes': notes,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  TodoSchedulesCompanion copyWith(
+      {Value<int>? id,
+      Value<int>? sourcePayloadId,
+      Value<String>? title,
+      Value<DateTime?>? dueDate,
+      Value<int>? priority,
+      Value<bool>? isDone,
+      Value<String?>? notes,
+      Value<DateTime>? createdAt}) {
+    return TodoSchedulesCompanion(
+      id: id ?? this.id,
+      sourcePayloadId: sourcePayloadId ?? this.sourcePayloadId,
+      title: title ?? this.title,
+      dueDate: dueDate ?? this.dueDate,
+      priority: priority ?? this.priority,
+      isDone: isDone ?? this.isDone,
+      notes: notes ?? this.notes,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (sourcePayloadId.present) {
+      map['source_payload_id'] = Variable<int>(sourcePayloadId.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (dueDate.present) {
+      map['due_date'] = Variable<DateTime>(dueDate.value);
+    }
+    if (priority.present) {
+      map['priority'] = Variable<int>(priority.value);
+    }
+    if (isDone.present) {
+      map['is_done'] = Variable<bool>(isDone.value);
+    }
+    if (notes.present) {
+      map['notes'] = Variable<String>(notes.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TodoSchedulesCompanion(')
+          ..write('id: $id, ')
+          ..write('sourcePayloadId: $sourcePayloadId, ')
+          ..write('title: $title, ')
+          ..write('dueDate: $dueDate, ')
+          ..write('priority: $priority, ')
+          ..write('isDone: $isDone, ')
+          ..write('notes: $notes, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -3353,6 +4899,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $AiConversationsTable aiConversations =
       $AiConversationsTable(this);
   late final $AiTemplatesTable aiTemplates = $AiTemplatesTable(this);
+  late final $CrmCustomersTable crmCustomers = $CrmCustomersTable(this);
+  late final $LedgerEntriesTable ledgerEntries = $LedgerEntriesTable(this);
+  late final $TodoSchedulesTable todoSchedules = $TodoSchedulesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -3367,7 +4916,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         ideaTasks,
         contentBlocks,
         aiConversations,
-        aiTemplates
+        aiTemplates,
+        crmCustomers,
+        ledgerEntries,
+        todoSchedules
       ];
 }
 
@@ -3379,6 +4931,11 @@ typedef $$HubPayloadsTableCreateCompanionBuilder = HubPayloadsCompanion
   Value<String> intentTag,
   Value<String?> title,
   Value<int> syncStatus,
+  Value<String> processingStatus,
+  Value<String?> dispatchedRef,
+  Value<String?> aiEntities,
+  Value<bool> isEphemeral,
+  Value<DateTime?> decayDeadline,
   Value<DateTime> createdAt,
 });
 typedef $$HubPayloadsTableUpdateCompanionBuilder = HubPayloadsCompanion
@@ -3389,6 +4946,11 @@ typedef $$HubPayloadsTableUpdateCompanionBuilder = HubPayloadsCompanion
   Value<String> intentTag,
   Value<String?> title,
   Value<int> syncStatus,
+  Value<String> processingStatus,
+  Value<String?> dispatchedRef,
+  Value<String?> aiEntities,
+  Value<bool> isEphemeral,
+  Value<DateTime?> decayDeadline,
   Value<DateTime> createdAt,
 });
 
@@ -3442,6 +5004,51 @@ final class $$HubPayloadsTableReferences
     return ProcessedTableManager(
         manager.$state.copyWith(prefetchedData: cache));
   }
+
+  static MultiTypedResultKey<$CrmCustomersTable, List<CrmCustomer>>
+      _crmCustomersRefsTable(_$AppDatabase db) =>
+          MultiTypedResultKey.fromTable(db.crmCustomers,
+              aliasName: $_aliasNameGenerator(
+                  db.hubPayloads.id, db.crmCustomers.sourcePayloadId));
+
+  $$CrmCustomersTableProcessedTableManager get crmCustomersRefs {
+    final manager = $$CrmCustomersTableTableManager($_db, $_db.crmCustomers)
+        .filter((f) => f.sourcePayloadId.id($_item.id));
+
+    final cache = $_typedResult.readTableOrNull(_crmCustomersRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+
+  static MultiTypedResultKey<$LedgerEntriesTable, List<LedgerEntry>>
+      _ledgerEntriesRefsTable(_$AppDatabase db) =>
+          MultiTypedResultKey.fromTable(db.ledgerEntries,
+              aliasName: $_aliasNameGenerator(
+                  db.hubPayloads.id, db.ledgerEntries.sourcePayloadId));
+
+  $$LedgerEntriesTableProcessedTableManager get ledgerEntriesRefs {
+    final manager = $$LedgerEntriesTableTableManager($_db, $_db.ledgerEntries)
+        .filter((f) => f.sourcePayloadId.id($_item.id));
+
+    final cache = $_typedResult.readTableOrNull(_ledgerEntriesRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
+
+  static MultiTypedResultKey<$TodoSchedulesTable, List<TodoSchedule>>
+      _todoSchedulesRefsTable(_$AppDatabase db) =>
+          MultiTypedResultKey.fromTable(db.todoSchedules,
+              aliasName: $_aliasNameGenerator(
+                  db.hubPayloads.id, db.todoSchedules.sourcePayloadId));
+
+  $$TodoSchedulesTableProcessedTableManager get todoSchedulesRefs {
+    final manager = $$TodoSchedulesTableTableManager($_db, $_db.todoSchedules)
+        .filter((f) => f.sourcePayloadId.id($_item.id));
+
+    final cache = $_typedResult.readTableOrNull(_todoSchedulesRefsTable($_db));
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: cache));
+  }
 }
 
 class $$HubPayloadsTableFilterComposer
@@ -3470,6 +5077,22 @@ class $$HubPayloadsTableFilterComposer
 
   ColumnFilters<int> get syncStatus => $composableBuilder(
       column: $table.syncStatus, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get processingStatus => $composableBuilder(
+      column: $table.processingStatus,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get dispatchedRef => $composableBuilder(
+      column: $table.dispatchedRef, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get aiEntities => $composableBuilder(
+      column: $table.aiEntities, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isEphemeral => $composableBuilder(
+      column: $table.isEphemeral, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get decayDeadline => $composableBuilder(
+      column: $table.decayDeadline, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnFilters(column));
@@ -3536,6 +5159,69 @@ class $$HubPayloadsTableFilterComposer
             ));
     return f(composer);
   }
+
+  Expression<bool> crmCustomersRefs(
+      Expression<bool> Function($$CrmCustomersTableFilterComposer f) f) {
+    final $$CrmCustomersTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.crmCustomers,
+        getReferencedColumn: (t) => t.sourcePayloadId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$CrmCustomersTableFilterComposer(
+              $db: $db,
+              $table: $db.crmCustomers,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<bool> ledgerEntriesRefs(
+      Expression<bool> Function($$LedgerEntriesTableFilterComposer f) f) {
+    final $$LedgerEntriesTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.ledgerEntries,
+        getReferencedColumn: (t) => t.sourcePayloadId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$LedgerEntriesTableFilterComposer(
+              $db: $db,
+              $table: $db.ledgerEntries,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<bool> todoSchedulesRefs(
+      Expression<bool> Function($$TodoSchedulesTableFilterComposer f) f) {
+    final $$TodoSchedulesTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.todoSchedules,
+        getReferencedColumn: (t) => t.sourcePayloadId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TodoSchedulesTableFilterComposer(
+              $db: $db,
+              $table: $db.todoSchedules,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
 }
 
 class $$HubPayloadsTableOrderingComposer
@@ -3564,6 +5250,24 @@ class $$HubPayloadsTableOrderingComposer
 
   ColumnOrderings<int> get syncStatus => $composableBuilder(
       column: $table.syncStatus, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get processingStatus => $composableBuilder(
+      column: $table.processingStatus,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get dispatchedRef => $composableBuilder(
+      column: $table.dispatchedRef,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get aiEntities => $composableBuilder(
+      column: $table.aiEntities, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get isEphemeral => $composableBuilder(
+      column: $table.isEphemeral, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get decayDeadline => $composableBuilder(
+      column: $table.decayDeadline,
+      builder: (column) => ColumnOrderings(column));
 
   ColumnOrderings<DateTime> get createdAt => $composableBuilder(
       column: $table.createdAt, builder: (column) => ColumnOrderings(column));
@@ -3595,6 +5299,21 @@ class $$HubPayloadsTableAnnotationComposer
 
   GeneratedColumn<int> get syncStatus => $composableBuilder(
       column: $table.syncStatus, builder: (column) => column);
+
+  GeneratedColumn<String> get processingStatus => $composableBuilder(
+      column: $table.processingStatus, builder: (column) => column);
+
+  GeneratedColumn<String> get dispatchedRef => $composableBuilder(
+      column: $table.dispatchedRef, builder: (column) => column);
+
+  GeneratedColumn<String> get aiEntities => $composableBuilder(
+      column: $table.aiEntities, builder: (column) => column);
+
+  GeneratedColumn<bool> get isEphemeral => $composableBuilder(
+      column: $table.isEphemeral, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get decayDeadline => $composableBuilder(
+      column: $table.decayDeadline, builder: (column) => column);
 
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
@@ -3661,6 +5380,69 @@ class $$HubPayloadsTableAnnotationComposer
             ));
     return f(composer);
   }
+
+  Expression<T> crmCustomersRefs<T extends Object>(
+      Expression<T> Function($$CrmCustomersTableAnnotationComposer a) f) {
+    final $$CrmCustomersTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.crmCustomers,
+        getReferencedColumn: (t) => t.sourcePayloadId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$CrmCustomersTableAnnotationComposer(
+              $db: $db,
+              $table: $db.crmCustomers,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<T> ledgerEntriesRefs<T extends Object>(
+      Expression<T> Function($$LedgerEntriesTableAnnotationComposer a) f) {
+    final $$LedgerEntriesTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.ledgerEntries,
+        getReferencedColumn: (t) => t.sourcePayloadId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$LedgerEntriesTableAnnotationComposer(
+              $db: $db,
+              $table: $db.ledgerEntries,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
+
+  Expression<T> todoSchedulesRefs<T extends Object>(
+      Expression<T> Function($$TodoSchedulesTableAnnotationComposer a) f) {
+    final $$TodoSchedulesTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.id,
+        referencedTable: $db.todoSchedules,
+        getReferencedColumn: (t) => t.sourcePayloadId,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$TodoSchedulesTableAnnotationComposer(
+              $db: $db,
+              $table: $db.todoSchedules,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return f(composer);
+  }
 }
 
 class $$HubPayloadsTableTableManager extends RootTableManager<
@@ -3677,7 +5459,10 @@ class $$HubPayloadsTableTableManager extends RootTableManager<
     PrefetchHooks Function(
         {bool ideaTasksRefs,
         bool contentBlocksRefs,
-        bool aiConversationsRefs})> {
+        bool aiConversationsRefs,
+        bool crmCustomersRefs,
+        bool ledgerEntriesRefs,
+        bool todoSchedulesRefs})> {
   $$HubPayloadsTableTableManager(_$AppDatabase db, $HubPayloadsTable table)
       : super(TableManagerState(
           db: db,
@@ -3695,6 +5480,11 @@ class $$HubPayloadsTableTableManager extends RootTableManager<
             Value<String> intentTag = const Value.absent(),
             Value<String?> title = const Value.absent(),
             Value<int> syncStatus = const Value.absent(),
+            Value<String> processingStatus = const Value.absent(),
+            Value<String?> dispatchedRef = const Value.absent(),
+            Value<String?> aiEntities = const Value.absent(),
+            Value<bool> isEphemeral = const Value.absent(),
+            Value<DateTime?> decayDeadline = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
           }) =>
               HubPayloadsCompanion(
@@ -3704,6 +5494,11 @@ class $$HubPayloadsTableTableManager extends RootTableManager<
             intentTag: intentTag,
             title: title,
             syncStatus: syncStatus,
+            processingStatus: processingStatus,
+            dispatchedRef: dispatchedRef,
+            aiEntities: aiEntities,
+            isEphemeral: isEphemeral,
+            decayDeadline: decayDeadline,
             createdAt: createdAt,
           ),
           createCompanionCallback: ({
@@ -3713,6 +5508,11 @@ class $$HubPayloadsTableTableManager extends RootTableManager<
             Value<String> intentTag = const Value.absent(),
             Value<String?> title = const Value.absent(),
             Value<int> syncStatus = const Value.absent(),
+            Value<String> processingStatus = const Value.absent(),
+            Value<String?> dispatchedRef = const Value.absent(),
+            Value<String?> aiEntities = const Value.absent(),
+            Value<bool> isEphemeral = const Value.absent(),
+            Value<DateTime?> decayDeadline = const Value.absent(),
             Value<DateTime> createdAt = const Value.absent(),
           }) =>
               HubPayloadsCompanion.insert(
@@ -3722,6 +5522,11 @@ class $$HubPayloadsTableTableManager extends RootTableManager<
             intentTag: intentTag,
             title: title,
             syncStatus: syncStatus,
+            processingStatus: processingStatus,
+            dispatchedRef: dispatchedRef,
+            aiEntities: aiEntities,
+            isEphemeral: isEphemeral,
+            decayDeadline: decayDeadline,
             createdAt: createdAt,
           ),
           withReferenceMapper: (p0) => p0
@@ -3733,13 +5538,19 @@ class $$HubPayloadsTableTableManager extends RootTableManager<
           prefetchHooksCallback: (
               {ideaTasksRefs = false,
               contentBlocksRefs = false,
-              aiConversationsRefs = false}) {
+              aiConversationsRefs = false,
+              crmCustomersRefs = false,
+              ledgerEntriesRefs = false,
+              todoSchedulesRefs = false}) {
             return PrefetchHooks(
               db: db,
               explicitlyWatchedTables: [
                 if (ideaTasksRefs) db.ideaTasks,
                 if (contentBlocksRefs) db.contentBlocks,
-                if (aiConversationsRefs) db.aiConversations
+                if (aiConversationsRefs) db.aiConversations,
+                if (crmCustomersRefs) db.crmCustomers,
+                if (ledgerEntriesRefs) db.ledgerEntries,
+                if (todoSchedulesRefs) db.todoSchedules
               ],
               addJoins: null,
               getPrefetchedDataCallback: (items) async {
@@ -3779,6 +5590,42 @@ class $$HubPayloadsTableTableManager extends RootTableManager<
                         referencedItemsForCurrentItem:
                             (item, referencedItems) => referencedItems
                                 .where((e) => e.payloadId == item.id),
+                        typedResults: items),
+                  if (crmCustomersRefs)
+                    await $_getPrefetchedData(
+                        currentTable: table,
+                        referencedTable: $$HubPayloadsTableReferences
+                            ._crmCustomersRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$HubPayloadsTableReferences(db, table, p0)
+                                .crmCustomersRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.sourcePayloadId == item.id),
+                        typedResults: items),
+                  if (ledgerEntriesRefs)
+                    await $_getPrefetchedData(
+                        currentTable: table,
+                        referencedTable: $$HubPayloadsTableReferences
+                            ._ledgerEntriesRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$HubPayloadsTableReferences(db, table, p0)
+                                .ledgerEntriesRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.sourcePayloadId == item.id),
+                        typedResults: items),
+                  if (todoSchedulesRefs)
+                    await $_getPrefetchedData(
+                        currentTable: table,
+                        referencedTable: $$HubPayloadsTableReferences
+                            ._todoSchedulesRefsTable(db),
+                        managerFromTypedResult: (p0) =>
+                            $$HubPayloadsTableReferences(db, table, p0)
+                                .todoSchedulesRefs,
+                        referencedItemsForCurrentItem:
+                            (item, referencedItems) => referencedItems
+                                .where((e) => e.sourcePayloadId == item.id),
                         typedResults: items)
                 ];
               },
@@ -3801,7 +5648,10 @@ typedef $$HubPayloadsTableProcessedTableManager = ProcessedTableManager<
     PrefetchHooks Function(
         {bool ideaTasksRefs,
         bool contentBlocksRefs,
-        bool aiConversationsRefs})>;
+        bool aiConversationsRefs,
+        bool crmCustomersRefs,
+        bool ledgerEntriesRefs,
+        bool todoSchedulesRefs})>;
 typedef $$ChatSessionsTableCreateCompanionBuilder = ChatSessionsCompanion
     Function({
   Value<int> id,
@@ -6079,6 +7929,965 @@ typedef $$AiTemplatesTableProcessedTableManager = ProcessedTableManager<
     (AiTemplate, BaseReferences<_$AppDatabase, $AiTemplatesTable, AiTemplate>),
     AiTemplate,
     PrefetchHooks Function()>;
+typedef $$CrmCustomersTableCreateCompanionBuilder = CrmCustomersCompanion
+    Function({
+  Value<int> id,
+  required int sourcePayloadId,
+  required String name,
+  Value<String?> company,
+  Value<String?> contact,
+  Value<String> tags,
+  Value<String?> notes,
+  Value<DateTime> createdAt,
+  Value<DateTime> updatedAt,
+});
+typedef $$CrmCustomersTableUpdateCompanionBuilder = CrmCustomersCompanion
+    Function({
+  Value<int> id,
+  Value<int> sourcePayloadId,
+  Value<String> name,
+  Value<String?> company,
+  Value<String?> contact,
+  Value<String> tags,
+  Value<String?> notes,
+  Value<DateTime> createdAt,
+  Value<DateTime> updatedAt,
+});
+
+final class $$CrmCustomersTableReferences
+    extends BaseReferences<_$AppDatabase, $CrmCustomersTable, CrmCustomer> {
+  $$CrmCustomersTableReferences(super.$_db, super.$_table, super.$_typedResult);
+
+  static $HubPayloadsTable _sourcePayloadIdTable(_$AppDatabase db) =>
+      db.hubPayloads.createAlias($_aliasNameGenerator(
+          db.crmCustomers.sourcePayloadId, db.hubPayloads.id));
+
+  $$HubPayloadsTableProcessedTableManager? get sourcePayloadId {
+    if ($_item.sourcePayloadId == null) return null;
+    final manager = $$HubPayloadsTableTableManager($_db, $_db.hubPayloads)
+        .filter((f) => f.id($_item.sourcePayloadId!));
+    final item = $_typedResult.readTableOrNull(_sourcePayloadIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$CrmCustomersTableFilterComposer
+    extends Composer<_$AppDatabase, $CrmCustomersTable> {
+  $$CrmCustomersTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get company => $composableBuilder(
+      column: $table.company, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get contact => $composableBuilder(
+      column: $table.contact, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get tags => $composableBuilder(
+      column: $table.tags, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get notes => $composableBuilder(
+      column: $table.notes, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnFilters(column));
+
+  $$HubPayloadsTableFilterComposer get sourcePayloadId {
+    final $$HubPayloadsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.sourcePayloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableFilterComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$CrmCustomersTableOrderingComposer
+    extends Composer<_$AppDatabase, $CrmCustomersTable> {
+  $$CrmCustomersTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get name => $composableBuilder(
+      column: $table.name, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get company => $composableBuilder(
+      column: $table.company, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get contact => $composableBuilder(
+      column: $table.contact, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get tags => $composableBuilder(
+      column: $table.tags, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get notes => $composableBuilder(
+      column: $table.notes, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+      column: $table.updatedAt, builder: (column) => ColumnOrderings(column));
+
+  $$HubPayloadsTableOrderingComposer get sourcePayloadId {
+    final $$HubPayloadsTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.sourcePayloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableOrderingComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$CrmCustomersTableAnnotationComposer
+    extends Composer<_$AppDatabase, $CrmCustomersTable> {
+  $$CrmCustomersTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get company =>
+      $composableBuilder(column: $table.company, builder: (column) => column);
+
+  GeneratedColumn<String> get contact =>
+      $composableBuilder(column: $table.contact, builder: (column) => column);
+
+  GeneratedColumn<String> get tags =>
+      $composableBuilder(column: $table.tags, builder: (column) => column);
+
+  GeneratedColumn<String> get notes =>
+      $composableBuilder(column: $table.notes, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  $$HubPayloadsTableAnnotationComposer get sourcePayloadId {
+    final $$HubPayloadsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.sourcePayloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$CrmCustomersTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $CrmCustomersTable,
+    CrmCustomer,
+    $$CrmCustomersTableFilterComposer,
+    $$CrmCustomersTableOrderingComposer,
+    $$CrmCustomersTableAnnotationComposer,
+    $$CrmCustomersTableCreateCompanionBuilder,
+    $$CrmCustomersTableUpdateCompanionBuilder,
+    (CrmCustomer, $$CrmCustomersTableReferences),
+    CrmCustomer,
+    PrefetchHooks Function({bool sourcePayloadId})> {
+  $$CrmCustomersTableTableManager(_$AppDatabase db, $CrmCustomersTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CrmCustomersTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CrmCustomersTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$CrmCustomersTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> sourcePayloadId = const Value.absent(),
+            Value<String> name = const Value.absent(),
+            Value<String?> company = const Value.absent(),
+            Value<String?> contact = const Value.absent(),
+            Value<String> tags = const Value.absent(),
+            Value<String?> notes = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
+          }) =>
+              CrmCustomersCompanion(
+            id: id,
+            sourcePayloadId: sourcePayloadId,
+            name: name,
+            company: company,
+            contact: contact,
+            tags: tags,
+            notes: notes,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required int sourcePayloadId,
+            required String name,
+            Value<String?> company = const Value.absent(),
+            Value<String?> contact = const Value.absent(),
+            Value<String> tags = const Value.absent(),
+            Value<String?> notes = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+            Value<DateTime> updatedAt = const Value.absent(),
+          }) =>
+              CrmCustomersCompanion.insert(
+            id: id,
+            sourcePayloadId: sourcePayloadId,
+            name: name,
+            company: company,
+            contact: contact,
+            tags: tags,
+            notes: notes,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$CrmCustomersTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({sourcePayloadId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (sourcePayloadId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.sourcePayloadId,
+                    referencedTable:
+                        $$CrmCustomersTableReferences._sourcePayloadIdTable(db),
+                    referencedColumn: $$CrmCustomersTableReferences
+                        ._sourcePayloadIdTable(db)
+                        .id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$CrmCustomersTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $CrmCustomersTable,
+    CrmCustomer,
+    $$CrmCustomersTableFilterComposer,
+    $$CrmCustomersTableOrderingComposer,
+    $$CrmCustomersTableAnnotationComposer,
+    $$CrmCustomersTableCreateCompanionBuilder,
+    $$CrmCustomersTableUpdateCompanionBuilder,
+    (CrmCustomer, $$CrmCustomersTableReferences),
+    CrmCustomer,
+    PrefetchHooks Function({bool sourcePayloadId})>;
+typedef $$LedgerEntriesTableCreateCompanionBuilder = LedgerEntriesCompanion
+    Function({
+  Value<int> id,
+  required int sourcePayloadId,
+  required double amount,
+  required String category,
+  Value<String> type,
+  Value<String?> description,
+  Value<DateTime?> occurredAt,
+  Value<DateTime> createdAt,
+});
+typedef $$LedgerEntriesTableUpdateCompanionBuilder = LedgerEntriesCompanion
+    Function({
+  Value<int> id,
+  Value<int> sourcePayloadId,
+  Value<double> amount,
+  Value<String> category,
+  Value<String> type,
+  Value<String?> description,
+  Value<DateTime?> occurredAt,
+  Value<DateTime> createdAt,
+});
+
+final class $$LedgerEntriesTableReferences
+    extends BaseReferences<_$AppDatabase, $LedgerEntriesTable, LedgerEntry> {
+  $$LedgerEntriesTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static $HubPayloadsTable _sourcePayloadIdTable(_$AppDatabase db) =>
+      db.hubPayloads.createAlias($_aliasNameGenerator(
+          db.ledgerEntries.sourcePayloadId, db.hubPayloads.id));
+
+  $$HubPayloadsTableProcessedTableManager? get sourcePayloadId {
+    if ($_item.sourcePayloadId == null) return null;
+    final manager = $$HubPayloadsTableTableManager($_db, $_db.hubPayloads)
+        .filter((f) => f.id($_item.sourcePayloadId!));
+    final item = $_typedResult.readTableOrNull(_sourcePayloadIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$LedgerEntriesTableFilterComposer
+    extends Composer<_$AppDatabase, $LedgerEntriesTable> {
+  $$LedgerEntriesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<double> get amount => $composableBuilder(
+      column: $table.amount, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get category => $composableBuilder(
+      column: $table.category, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get type => $composableBuilder(
+      column: $table.type, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get description => $composableBuilder(
+      column: $table.description, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get occurredAt => $composableBuilder(
+      column: $table.occurredAt, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  $$HubPayloadsTableFilterComposer get sourcePayloadId {
+    final $$HubPayloadsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.sourcePayloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableFilterComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$LedgerEntriesTableOrderingComposer
+    extends Composer<_$AppDatabase, $LedgerEntriesTable> {
+  $$LedgerEntriesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<double> get amount => $composableBuilder(
+      column: $table.amount, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get category => $composableBuilder(
+      column: $table.category, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get type => $composableBuilder(
+      column: $table.type, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get description => $composableBuilder(
+      column: $table.description, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get occurredAt => $composableBuilder(
+      column: $table.occurredAt, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  $$HubPayloadsTableOrderingComposer get sourcePayloadId {
+    final $$HubPayloadsTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.sourcePayloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableOrderingComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$LedgerEntriesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $LedgerEntriesTable> {
+  $$LedgerEntriesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<double> get amount =>
+      $composableBuilder(column: $table.amount, builder: (column) => column);
+
+  GeneratedColumn<String> get category =>
+      $composableBuilder(column: $table.category, builder: (column) => column);
+
+  GeneratedColumn<String> get type =>
+      $composableBuilder(column: $table.type, builder: (column) => column);
+
+  GeneratedColumn<String> get description => $composableBuilder(
+      column: $table.description, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get occurredAt => $composableBuilder(
+      column: $table.occurredAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  $$HubPayloadsTableAnnotationComposer get sourcePayloadId {
+    final $$HubPayloadsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.sourcePayloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$LedgerEntriesTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $LedgerEntriesTable,
+    LedgerEntry,
+    $$LedgerEntriesTableFilterComposer,
+    $$LedgerEntriesTableOrderingComposer,
+    $$LedgerEntriesTableAnnotationComposer,
+    $$LedgerEntriesTableCreateCompanionBuilder,
+    $$LedgerEntriesTableUpdateCompanionBuilder,
+    (LedgerEntry, $$LedgerEntriesTableReferences),
+    LedgerEntry,
+    PrefetchHooks Function({bool sourcePayloadId})> {
+  $$LedgerEntriesTableTableManager(_$AppDatabase db, $LedgerEntriesTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$LedgerEntriesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$LedgerEntriesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$LedgerEntriesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> sourcePayloadId = const Value.absent(),
+            Value<double> amount = const Value.absent(),
+            Value<String> category = const Value.absent(),
+            Value<String> type = const Value.absent(),
+            Value<String?> description = const Value.absent(),
+            Value<DateTime?> occurredAt = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+          }) =>
+              LedgerEntriesCompanion(
+            id: id,
+            sourcePayloadId: sourcePayloadId,
+            amount: amount,
+            category: category,
+            type: type,
+            description: description,
+            occurredAt: occurredAt,
+            createdAt: createdAt,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required int sourcePayloadId,
+            required double amount,
+            required String category,
+            Value<String> type = const Value.absent(),
+            Value<String?> description = const Value.absent(),
+            Value<DateTime?> occurredAt = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+          }) =>
+              LedgerEntriesCompanion.insert(
+            id: id,
+            sourcePayloadId: sourcePayloadId,
+            amount: amount,
+            category: category,
+            type: type,
+            description: description,
+            occurredAt: occurredAt,
+            createdAt: createdAt,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$LedgerEntriesTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({sourcePayloadId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (sourcePayloadId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.sourcePayloadId,
+                    referencedTable: $$LedgerEntriesTableReferences
+                        ._sourcePayloadIdTable(db),
+                    referencedColumn: $$LedgerEntriesTableReferences
+                        ._sourcePayloadIdTable(db)
+                        .id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$LedgerEntriesTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $LedgerEntriesTable,
+    LedgerEntry,
+    $$LedgerEntriesTableFilterComposer,
+    $$LedgerEntriesTableOrderingComposer,
+    $$LedgerEntriesTableAnnotationComposer,
+    $$LedgerEntriesTableCreateCompanionBuilder,
+    $$LedgerEntriesTableUpdateCompanionBuilder,
+    (LedgerEntry, $$LedgerEntriesTableReferences),
+    LedgerEntry,
+    PrefetchHooks Function({bool sourcePayloadId})>;
+typedef $$TodoSchedulesTableCreateCompanionBuilder = TodoSchedulesCompanion
+    Function({
+  Value<int> id,
+  required int sourcePayloadId,
+  required String title,
+  Value<DateTime?> dueDate,
+  Value<int> priority,
+  Value<bool> isDone,
+  Value<String?> notes,
+  Value<DateTime> createdAt,
+});
+typedef $$TodoSchedulesTableUpdateCompanionBuilder = TodoSchedulesCompanion
+    Function({
+  Value<int> id,
+  Value<int> sourcePayloadId,
+  Value<String> title,
+  Value<DateTime?> dueDate,
+  Value<int> priority,
+  Value<bool> isDone,
+  Value<String?> notes,
+  Value<DateTime> createdAt,
+});
+
+final class $$TodoSchedulesTableReferences
+    extends BaseReferences<_$AppDatabase, $TodoSchedulesTable, TodoSchedule> {
+  $$TodoSchedulesTableReferences(
+      super.$_db, super.$_table, super.$_typedResult);
+
+  static $HubPayloadsTable _sourcePayloadIdTable(_$AppDatabase db) =>
+      db.hubPayloads.createAlias($_aliasNameGenerator(
+          db.todoSchedules.sourcePayloadId, db.hubPayloads.id));
+
+  $$HubPayloadsTableProcessedTableManager? get sourcePayloadId {
+    if ($_item.sourcePayloadId == null) return null;
+    final manager = $$HubPayloadsTableTableManager($_db, $_db.hubPayloads)
+        .filter((f) => f.id($_item.sourcePayloadId!));
+    final item = $_typedResult.readTableOrNull(_sourcePayloadIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+        manager.$state.copyWith(prefetchedData: [item]));
+  }
+}
+
+class $$TodoSchedulesTableFilterComposer
+    extends Composer<_$AppDatabase, $TodoSchedulesTable> {
+  $$TodoSchedulesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get title => $composableBuilder(
+      column: $table.title, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get dueDate => $composableBuilder(
+      column: $table.dueDate, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get priority => $composableBuilder(
+      column: $table.priority, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<bool> get isDone => $composableBuilder(
+      column: $table.isDone, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get notes => $composableBuilder(
+      column: $table.notes, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnFilters(column));
+
+  $$HubPayloadsTableFilterComposer get sourcePayloadId {
+    final $$HubPayloadsTableFilterComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.sourcePayloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableFilterComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$TodoSchedulesTableOrderingComposer
+    extends Composer<_$AppDatabase, $TodoSchedulesTable> {
+  $$TodoSchedulesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get title => $composableBuilder(
+      column: $table.title, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get dueDate => $composableBuilder(
+      column: $table.dueDate, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get priority => $composableBuilder(
+      column: $table.priority, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<bool> get isDone => $composableBuilder(
+      column: $table.isDone, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get notes => $composableBuilder(
+      column: $table.notes, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+      column: $table.createdAt, builder: (column) => ColumnOrderings(column));
+
+  $$HubPayloadsTableOrderingComposer get sourcePayloadId {
+    final $$HubPayloadsTableOrderingComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.sourcePayloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableOrderingComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$TodoSchedulesTableAnnotationComposer
+    extends Composer<_$AppDatabase, $TodoSchedulesTable> {
+  $$TodoSchedulesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get dueDate =>
+      $composableBuilder(column: $table.dueDate, builder: (column) => column);
+
+  GeneratedColumn<int> get priority =>
+      $composableBuilder(column: $table.priority, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDone =>
+      $composableBuilder(column: $table.isDone, builder: (column) => column);
+
+  GeneratedColumn<String> get notes =>
+      $composableBuilder(column: $table.notes, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  $$HubPayloadsTableAnnotationComposer get sourcePayloadId {
+    final $$HubPayloadsTableAnnotationComposer composer = $composerBuilder(
+        composer: this,
+        getCurrentColumn: (t) => t.sourcePayloadId,
+        referencedTable: $db.hubPayloads,
+        getReferencedColumn: (t) => t.id,
+        builder: (joinBuilder,
+                {$addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer}) =>
+            $$HubPayloadsTableAnnotationComposer(
+              $db: $db,
+              $table: $db.hubPayloads,
+              $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+              joinBuilder: joinBuilder,
+              $removeJoinBuilderFromRootComposer:
+                  $removeJoinBuilderFromRootComposer,
+            ));
+    return composer;
+  }
+}
+
+class $$TodoSchedulesTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $TodoSchedulesTable,
+    TodoSchedule,
+    $$TodoSchedulesTableFilterComposer,
+    $$TodoSchedulesTableOrderingComposer,
+    $$TodoSchedulesTableAnnotationComposer,
+    $$TodoSchedulesTableCreateCompanionBuilder,
+    $$TodoSchedulesTableUpdateCompanionBuilder,
+    (TodoSchedule, $$TodoSchedulesTableReferences),
+    TodoSchedule,
+    PrefetchHooks Function({bool sourcePayloadId})> {
+  $$TodoSchedulesTableTableManager(_$AppDatabase db, $TodoSchedulesTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TodoSchedulesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$TodoSchedulesTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$TodoSchedulesTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> sourcePayloadId = const Value.absent(),
+            Value<String> title = const Value.absent(),
+            Value<DateTime?> dueDate = const Value.absent(),
+            Value<int> priority = const Value.absent(),
+            Value<bool> isDone = const Value.absent(),
+            Value<String?> notes = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+          }) =>
+              TodoSchedulesCompanion(
+            id: id,
+            sourcePayloadId: sourcePayloadId,
+            title: title,
+            dueDate: dueDate,
+            priority: priority,
+            isDone: isDone,
+            notes: notes,
+            createdAt: createdAt,
+          ),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required int sourcePayloadId,
+            required String title,
+            Value<DateTime?> dueDate = const Value.absent(),
+            Value<int> priority = const Value.absent(),
+            Value<bool> isDone = const Value.absent(),
+            Value<String?> notes = const Value.absent(),
+            Value<DateTime> createdAt = const Value.absent(),
+          }) =>
+              TodoSchedulesCompanion.insert(
+            id: id,
+            sourcePayloadId: sourcePayloadId,
+            title: title,
+            dueDate: dueDate,
+            priority: priority,
+            isDone: isDone,
+            notes: notes,
+            createdAt: createdAt,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (
+                    e.readTable(table),
+                    $$TodoSchedulesTableReferences(db, table, e)
+                  ))
+              .toList(),
+          prefetchHooksCallback: ({sourcePayloadId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins: <
+                  T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic>>(state) {
+                if (sourcePayloadId) {
+                  state = state.withJoin(
+                    currentTable: table,
+                    currentColumn: table.sourcePayloadId,
+                    referencedTable: $$TodoSchedulesTableReferences
+                        ._sourcePayloadIdTable(db),
+                    referencedColumn: $$TodoSchedulesTableReferences
+                        ._sourcePayloadIdTable(db)
+                        .id,
+                  ) as T;
+                }
+
+                return state;
+              },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ));
+}
+
+typedef $$TodoSchedulesTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $TodoSchedulesTable,
+    TodoSchedule,
+    $$TodoSchedulesTableFilterComposer,
+    $$TodoSchedulesTableOrderingComposer,
+    $$TodoSchedulesTableAnnotationComposer,
+    $$TodoSchedulesTableCreateCompanionBuilder,
+    $$TodoSchedulesTableUpdateCompanionBuilder,
+    (TodoSchedule, $$TodoSchedulesTableReferences),
+    TodoSchedule,
+    PrefetchHooks Function({bool sourcePayloadId})>;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -6103,4 +8912,10 @@ class $AppDatabaseManager {
       $$AiConversationsTableTableManager(_db, _db.aiConversations);
   $$AiTemplatesTableTableManager get aiTemplates =>
       $$AiTemplatesTableTableManager(_db, _db.aiTemplates);
+  $$CrmCustomersTableTableManager get crmCustomers =>
+      $$CrmCustomersTableTableManager(_db, _db.crmCustomers);
+  $$LedgerEntriesTableTableManager get ledgerEntries =>
+      $$LedgerEntriesTableTableManager(_db, _db.ledgerEntries);
+  $$TodoSchedulesTableTableManager get todoSchedules =>
+      $$TodoSchedulesTableTableManager(_db, _db.todoSchedules);
 }

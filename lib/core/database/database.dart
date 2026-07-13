@@ -25,6 +25,22 @@ class HubPayloads extends Table {
 
   IntColumn get syncStatus => integer().withDefault(const Constant(0))();
 
+  /// 处理流水线状态：synced_local / vector_checking / ai_routing / dispatching / dispatched / failed_retry
+  TextColumn get processingStatus =>
+      text().withDefault(const Constant('synced_local'))();
+
+  /// 分发引用，格式 "table_name:id"，用于双向链接追溯
+  TextColumn get dispatchedRef => text().nullable()();
+
+  /// AI 路由抽取的实体 JSON 快照
+  TextColumn get aiEntities => text().nullable()();
+
+  /// 是否标记为日常废话（触发衰减）
+  BoolColumn get isEphemeral => boolean().withDefault(const Constant(false))();
+
+  /// 废话衰减到期时间（创建后 48h）
+  DateTimeColumn get decayDeadline => dateTime().nullable()();
+
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -175,6 +191,68 @@ class AiTemplates extends Table {
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
+/// CRM 客户表 —— 从闪念分发来的客户/联系人记录
+class CrmCustomers extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  IntColumn get sourcePayloadId => integer().references(HubPayloads, #id)();
+
+  TextColumn get name => text()();
+
+  TextColumn get company => text().nullable()();
+
+  TextColumn get contact => text().nullable()();
+
+  TextColumn get tags =>
+      text().withDefault(const Constant('[]'))(); // JSON 标签数组
+
+  TextColumn get notes => text().nullable()();
+
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+/// 记账流水表 —— 从闪念分发来的财务记录
+class LedgerEntries extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  IntColumn get sourcePayloadId => integer().references(HubPayloads, #id)();
+
+  RealColumn get amount => real()();
+
+  TextColumn get category => text()(); // 餐饮/交通/采购等
+
+  TextColumn get type =>
+      text().withDefault(const Constant('expense'))(); // income / expense
+
+  TextColumn get description => text().nullable()();
+
+  DateTimeColumn get occurredAt => dateTime().nullable()();
+
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
+/// 待办日程表 —— 从闪念分发来的待办/日程记录
+class TodoSchedules extends Table {
+  IntColumn get id => integer().autoIncrement()();
+
+  IntColumn get sourcePayloadId => integer().references(HubPayloads, #id)();
+
+  TextColumn get title => text()();
+
+  DateTimeColumn get dueDate => dateTime().nullable()();
+
+  IntColumn get priority =>
+      integer().withDefault(const Constant(0))(); // 0-3，0=无优先级
+
+  BoolColumn get isDone => boolean().withDefault(const Constant(false))();
+
+  TextColumn get notes => text().nullable()();
+
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
 @DriftDatabase(tables: [
   HubPayloads,
   ChatSessions,
@@ -186,12 +264,15 @@ class AiTemplates extends Table {
   ContentBlocks,
   AiConversations,
   AiTemplates,
+  CrmCustomers,
+  LedgerEntries,
+  TodoSchedules,
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 10;
+  int get schemaVersion => 11;
 
   @override
   MigrationStrategy get migration {
@@ -244,8 +325,28 @@ class AppDatabase extends _$AppDatabase {
         // v9 → v10: 新增 AiTemplates 表
         if (from <= 9) {
           await m.createTable(aiTemplates);
-          // 插入默认种子数据
           await _seedDefaultTemplates();
+        }
+        // v10 → v11: 新增处理流水线字段 + 3 张业务表
+        if (from <= 10) {
+          await customStatement(
+            "ALTER TABLE hub_payloads ADD COLUMN processing_status TEXT NOT NULL DEFAULT 'synced_local'",
+          );
+          await customStatement(
+            'ALTER TABLE hub_payloads ADD COLUMN dispatched_ref TEXT',
+          );
+          await customStatement(
+            'ALTER TABLE hub_payloads ADD COLUMN ai_entities TEXT',
+          );
+          await customStatement(
+            'ALTER TABLE hub_payloads ADD COLUMN is_ephemeral INTEGER NOT NULL DEFAULT 0',
+          );
+          await customStatement(
+            'ALTER TABLE hub_payloads ADD COLUMN decay_deadline INTEGER',
+          );
+          await m.createTable(crmCustomers);
+          await m.createTable(ledgerEntries);
+          await m.createTable(todoSchedules);
         }
       },
       beforeOpen: (details) async {
@@ -516,6 +617,140 @@ class AppDatabase extends _$AppDatabase {
         .watch();
   }
 
+  /// 监听单条 payload 的实时变化
+  Stream<HubPayload?> watchPayloadById(int id) {
+    return (select(hubPayloads)..where((t) => t.id.equals(id))).watchSingle();
+  }
+
+  // ==================== 处理状态管理 ====================
+
+  /// 更新处理流水线状态
+  Future<void> updateProcessingStatus(int id, String status) {
+    return (update(hubPayloads)..where((t) => t.id.equals(id))).write(
+      HubPayloadsCompanion(processingStatus: Value(status)),
+    );
+  }
+
+  /// 更新分发引用（双向链接）
+  Future<void> updateDispatchedRef(int id, String ref) {
+    return (update(hubPayloads)..where((t) => t.id.equals(id))).write(
+      HubPayloadsCompanion(dispatchedRef: Value(ref)),
+    );
+  }
+
+  /// 更新 AI 抽取的实体 JSON
+  Future<void> updateAiEntities(int id, String entitiesJson) {
+    return (update(hubPayloads)..where((t) => t.id.equals(id))).write(
+      HubPayloadsCompanion(aiEntities: Value(entitiesJson)),
+    );
+  }
+
+  /// 更新意图标签（AI 路由修正后）
+  Future<void> updateIntentTag(int id, String intentTag) {
+    return (update(hubPayloads)..where((t) => t.id.equals(id))).write(
+      HubPayloadsCompanion(intentTag: Value(intentTag)),
+    );
+  }
+
+  /// 标记为日常废话，设置衰减截止时间
+  Future<void> markAsEphemeral(int id) {
+    final deadline = DateTime.now().add(const Duration(hours: 48));
+    return (update(hubPayloads)..where((t) => t.id.equals(id))).write(
+      HubPayloadsCompanion(
+        isEphemeral: const Value(true),
+        decayDeadline: Value(deadline),
+      ),
+    );
+  }
+
+  /// 获取所有待处理的 payload（processingStatus != dispatched）
+  Future<List<HubPayload>> getPendingPayloads() {
+    return (select(hubPayloads)
+          ..where((t) => t.processingStatus.equals('dispatched').not())
+          ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
+        .get();
+  }
+
+  /// 获取所有标记为废话且未到期的 payload
+  Future<List<HubPayload>> getDecayingPayloads() {
+    final now = DateTime.now();
+    return (select(hubPayloads)
+          ..where((t) =>
+              t.isEphemeral.equals(true) &
+              t.decayDeadline.isBiggerThanValue(now)))
+        .get();
+  }
+
+  // ==================== CRM 客户表 CRUD ====================
+
+  Stream<List<CrmCustomer>> watchAllCrmCustomers() {
+    return (select(crmCustomers)
+          ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+        .watch();
+  }
+
+  Future<int> insertCrmCustomer(CrmCustomersCompanion entry) {
+    return into(crmCustomers).insert(entry);
+  }
+
+  Future<void> updateCrmCustomer(int id, CrmCustomersCompanion entry) {
+    return (update(crmCustomers)..where((t) => t.id.equals(id)))
+        .write(entry.copyWith(updatedAt: Value(DateTime.now())));
+  }
+
+  Future<int> deleteCrmCustomer(int id) {
+    return (delete(crmCustomers)..where((t) => t.id.equals(id))).go();
+  }
+
+  // ==================== 记账流水表 CRUD ====================
+
+  Stream<List<LedgerEntry>> watchAllLedgerEntries() {
+    return (select(ledgerEntries)
+          ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
+        .watch();
+  }
+
+  Future<int> insertLedgerEntry(LedgerEntriesCompanion entry) {
+    return into(ledgerEntries).insert(entry);
+  }
+
+  Future<void> updateLedgerEntry(int id, LedgerEntriesCompanion entry) {
+    return (update(ledgerEntries)..where((t) => t.id.equals(id))).write(entry);
+  }
+
+  Future<int> deleteLedgerEntry(int id) {
+    return (delete(ledgerEntries)..where((t) => t.id.equals(id))).go();
+  }
+
+  // ==================== 待办日程表 CRUD ====================
+
+  Stream<List<TodoSchedule>> watchAllTodoSchedules() {
+    return (select(todoSchedules)
+          ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
+        .watch();
+  }
+
+  Stream<List<TodoSchedule>> watchTodosForPayload(int payloadId) {
+    return (select(todoSchedules)
+          ..where((t) => t.sourcePayloadId.equals(payloadId))
+          ..orderBy([(t) => OrderingTerm.asc(t.dueDate)]))
+        .watch();
+  }
+
+  Future<int> insertTodoSchedule(TodoSchedulesCompanion entry) {
+    return into(todoSchedules).insert(entry);
+  }
+
+  Future<void> toggleTodoDone(int id, bool isDone) {
+    return (update(todoSchedules)..where((t) => t.id.equals(id))).write(
+      TodoSchedulesCompanion(isDone: Value(isDone)),
+    );
+  }
+
+  Future<int> deleteTodoSchedule(int id) {
+    return (delete(todoSchedules)..where((t) => t.id.equals(id))).go();
+  }
+
   // ==================== 会话与消息 (左脑短期记忆) ====================
 
   Future<int> createSession(String title) {
@@ -676,12 +911,13 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// 根据指定的知识库文件 ID 列表检索相关上下文
-  Future<String> getRelevantContextForFiles(String query, List<int> fileIds) async {
+  Future<String> getRelevantContextForFiles(
+      String query, List<int> fileIds) async {
     if (fileIds.isEmpty) return "";
 
     final results = await (select(vectorStorage)
-          ..where((t) =>
-              t.sourceFileId.isIn(fileIds) & t.content.like('%$query%'))
+          ..where(
+              (t) => t.sourceFileId.isIn(fileIds) & t.content.like('%$query%'))
           ..limit(3))
         .get();
 

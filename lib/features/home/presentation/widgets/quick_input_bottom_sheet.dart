@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../../core/di/service_locator.dart';
 import '../../../../core/database/database.dart';
 import '../../../../core/utils/intent_router.dart';
+import '../../../../core/services/processing_pipeline.dart';
 import '../../../idea_stream/data/idea_repository.dart';
 
 class QuickInputBottomSheet extends StatefulWidget {
@@ -17,6 +18,7 @@ class QuickInputBottomSheet extends StatefulWidget {
 
 class _QuickInputBottomSheetState extends State<QuickInputBottomSheet> {
   final _repo = getIt<IdeaRepository>();
+  final _pipeline = getIt<ProcessingPipeline>();
   final TextEditingController _textController = TextEditingController();
   final List<String> _pendingMediaPaths = [];
   final ImagePicker _picker = ImagePicker();
@@ -75,7 +77,10 @@ class _QuickInputBottomSheetState extends State<QuickInputBottomSheet> {
       mediaPaths: d.Value(mediaJson),
     );
 
-    await _repo.insert(entry);
+    final payloadId = await _repo.insert(entry);
+
+    // 触发后台异步处理管线（不阻塞 UI）
+    _pipeline.enqueue(payloadId);
 
     if (mounted) Navigator.pop(context); // 发送完毕自动收回控制台
   }

@@ -1,5 +1,3 @@
-
-import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
@@ -17,20 +15,24 @@ class ModelInfo {
   });
 }
 
-/// AI 通用引擎 —— 封装 LLM 调用，支持流式 / 非流式两种模式
+/// AI 通用引擎 —— 封装 LLM 调用，支持流式 / 非流式 / Function Calling 三种模式
 /// 当前适配 DeepSeek API（兼容 OpenAI 格式）
 class AiEngine {
   final String _apiKey;
   String _baseUrl;
   String _model;
 
-  /// 可用模型列表（后续可从设置页自定义扩展）
+  /// 可用模型列表
   static const List<ModelInfo> availableModels = [
     ModelInfo(id: 'deepseek-chat', name: 'DeepSeek Chat', provider: 'DeepSeek'),
-    ModelInfo(id: 'deepseek-reasoner', name: 'DeepSeek R1', provider: 'DeepSeek'),
+    ModelInfo(
+        id: 'deepseek-reasoner', name: 'DeepSeek R1', provider: 'DeepSeek'),
     ModelInfo(id: 'gpt-4o', name: 'GPT-4o', provider: 'OpenAI'),
     ModelInfo(id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'OpenAI'),
-    ModelInfo(id: 'claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', provider: 'Anthropic'),
+    ModelInfo(
+        id: 'claude-3.5-sonnet',
+        name: 'Claude 3.5 Sonnet',
+        provider: 'Anthropic'),
   ];
 
   AiEngine()
@@ -81,122 +83,145 @@ class AiEngine {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        return data['choices']?[0]?['message']?['content']?.trim() ??
-            _fallbackResponse(systemPrompt);
+        return data['choices'][0]['message']['content']?.trim() ?? 'API 返回为空';
       }
-      return _fallbackResponse(systemPrompt);
-    } catch (_) {
-      return _fallbackResponse(systemPrompt);
+      return "API 请求失败: ${response.statusCode}";
+    } catch (e) {
+      return "网络异常，请检查连接后重试";
     }
   }
 
-  // ==================== 流式调用 ====================
+  /// AI 润色文本（便捷方法）
+  Future<String> polishText(String content) async {
+    return chat(
+      '你是一个专业的文字编辑，请对以下内容进行润色，使其更清晰流畅，但保持原意不变。直接返回润色后的文本，无需解释。',
+      content,
+    );
+  }
 
-  /// 流式发送消息，通过 [onChunk] 回调逐字输出
-  Future<String> chatStream(
+  // ==================== Function Calling / Tool Use ====================
+
+  /// 调用大模型 Function Calling，返回工具调用的 JSON 参数
+  /// [systemPrompt] 系统提示词
+  /// [userMessage] 用户输入的文本
+  /// [tools] OpenAI 兼容的 tools 定义列表
+  /// [toolChoice] 工具选择策略，默认 "auto"
+  /// 返回解析后的 tool call arguments（Map），失败返回 null
+  Future<Map<String, dynamic>?> functionCall({
+    required String systemPrompt,
+    required String userMessage,
+    required List<Map<String, dynamic>> tools,
+    String toolChoice = 'auto',
+  }) async {
+    if (!isConfigured) return null;
+
+    try {
+      final uri = Uri.parse('$_baseUrl/chat/completions');
+      final response = await http
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $_apiKey',
+            },
+            body: jsonEncode({
+              'model': _model,
+              'messages': [
+                {'role': 'system', 'content': systemPrompt},
+                {'role': 'user', 'content': userMessage},
+              ],
+              'tools': tools,
+              'tool_choice': toolChoice,
+              'temperature': 0.3,
+              'max_tokens': 1000,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final choice = data['choices']?[0];
+        final message = choice?['message'];
+
+        // 检查是否有 tool_calls
+        final toolCalls = message?['tool_calls'];
+        if (toolCalls != null && toolCalls is List && toolCalls.isNotEmpty) {
+          final function = toolCalls[0]['function'];
+          final argumentsStr = function['arguments'] as String?;
+          if (argumentsStr != null && argumentsStr.isNotEmpty) {
+            return jsonDecode(argumentsStr) as Map<String, dynamic>;
+          }
+        }
+
+        // 有些模型直接返回 content 中的 JSON
+        final content = message?['content'] as String?;
+        if (content != null && content.trim().isNotEmpty) {
+          try {
+            return jsonDecode(content) as Map<String, dynamic>;
+          } catch (_) {}
+        }
+      }
+      return null;
+    } catch (_) {
+      return null; // 超时或网络错误，返回 null 触发降级
+    }
+  }
+
+  // ==================== 流式调用（保留，供 Chat 功能使用） ====================
+
+  /// 发送流式消息，通过 [onChunk] 回调逐字返回
+  Future<void> chatStream(
     String systemPrompt,
     String userMessage,
     void Function(String chunk) onChunk,
   ) async {
     if (!isConfigured) {
-      return _simulateStream(_fallbackResponse(systemPrompt), onChunk);
+      onChunk(_fallbackResponse(systemPrompt));
+      return;
     }
 
     try {
       final uri = Uri.parse('$_baseUrl/chat/completions');
-      final request = http.StreamedRequest('POST', uri);
-      request.headers.addAll({
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer $_apiKey',
-      });
-      request.sink.add(utf8.encode(jsonEncode({
-        'model': _model,
-        'messages': [
-          {'role': 'system', 'content': systemPrompt},
-          {'role': 'user', 'content': userMessage},
-        ],
-        'temperature': 0.7,
-        'max_tokens': 2000,
-        'stream': true,
-      })));
-      request.sink.close();
+      final request = http.Request('POST', uri)
+        ..headers.addAll({
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_apiKey',
+        })
+        ..body = jsonEncode({
+          'model': _model,
+          'messages': [
+            {'role': 'system', 'content': systemPrompt},
+            {'role': 'user', 'content': userMessage},
+          ],
+          'stream': true,
+          'temperature': 0.7,
+          'max_tokens': 2000,
+        });
 
-      final response = await request.send().timeout(const Duration(seconds: 60));
+      final streamedResponse =
+          await request.send().timeout(const Duration(seconds: 30));
 
-      if (response.statusCode == 200) {
-        final buffer = StringBuffer();
-        await for (final chunk in response.stream
-            .transform(utf8.decoder)
-            .transform(const LineSplitter())) {
-          if (chunk.startsWith('data: ') && chunk.length > 6) {
-            final data = chunk.substring(6);
-            if (data == '[DONE]') break;
-            try {
-              final json = jsonDecode(data);
-              final content = json['choices']?[0]?['delta']?['content'];
-              if (content != null && content.isNotEmpty) {
-                buffer.write(content);
-                onChunk(content);
-              }
-            } catch (_) {}
-          }
+      await for (final chunk in streamedResponse.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        if (chunk.startsWith('data: ') && chunk.length > 6) {
+          final data = chunk.substring(6);
+          if (data == '[DONE]') break;
+          try {
+            final json = jsonDecode(data);
+            final content =
+                json['choices']?[0]?['delta']?['content'] as String?;
+            if (content != null) onChunk(content);
+          } catch (_) {}
         }
-        return buffer.toString();
       }
-    } catch (_) {}
-
-    return _simulateStream(_fallbackResponse(systemPrompt), onChunk);
+    } catch (e) {
+      onChunk("网络异常，请检查连接后重试");
+    }
   }
 
-  // ==================== 闪念专用快捷方法 ====================
-
-  /// 消除口语化 / 润色
-  Future<String> polishText(String rawText) =>
-      chatStream('你是一位资深文案编辑。将用户输入的口语化文本润色为流畅、专业的书面表达，保留原意和所有关键信息。只返回润色后的文本，不要加任何解释。',
-          rawText, (_) {});
-
-  /// 正规化公文格式
-  Future<String> formalizeText(String rawText) => chatStream(
-      '你是一位政府/企业公文撰写专家。将用户输入整理为正式公文格式，结构清晰、用词规范。只返回格式化后的文本。',
-      rawText, (_) {});
-
-  /// 提取结构化账目
-  Future<String> extractLedger(String rawText) => chatStream(
-      '你是一位专业财务分析师。从用户输入中提取所有涉及金额、交易、账目的信息，整理为：\n【交易项目】\n【财务科目】\n【金额】\n【备注】\n只返回提取结果。',
-      rawText, (_) {});
-
-  /// 派生待办任务
-  Future<String> deriveTasks(String rawText) => chatStream(
-      '你是一位高效的项目管理助手。从用户输入中识别所有需要执行的动作项，以简洁的待办清单列出。每行一个任务，用"•"开头。只返回任务列表。',
-      rawText, (_) {});
-
-  // ==================== Fallback ====================
-
-  String _fallbackResponse(String systemPrompt) {
-    if (systemPrompt.contains('文案')) {
-      return '[AI离线] 文本已本地缓存，联网后将自动润色。';
-    }
-    if (systemPrompt.contains('公文')) {
-      return '[AI离线] 文档草稿已保存，将在联网后格式化。';
-    }
-    if (systemPrompt.contains('财务')) {
-      return '[AI离线] 账目信息已标记，联网后提取。';
-    }
-    if (systemPrompt.contains('项目管理')) {
-      return '[AI离线] 任务清单可手动添加，或等待联网派生。';
-    }
-    return '[AI离线] 服务暂不可用，请稍后重试。';
-  }
-
-  String _simulateStream(String text, void Function(String) onChunk) {
-    int index = 0;
-    Timer.periodic(const Duration(milliseconds: 25), (timer) {
-      if (index < text.length) {
-        onChunk(text[index++]);
-      } else {
-        timer.cancel();
-      }
-    });
-    return text;
+  /// 本地离线回退响应（当 API Key 未配置时）
+  String _fallbackResponse(String prompt) {
+    return "本地智能代理已就绪，请配置 API Key 以启用云端大模型。";
   }
 }

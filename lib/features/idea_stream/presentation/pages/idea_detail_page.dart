@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../../../../core/di/service_locator.dart';
 import '../../../../core/database/database.dart';
 import '../../../../core/services/ai_engine.dart';
+import '../../../../core/enums/processing_status.dart';
 import '../../../../core/theme/design_system.dart';
 import '../../data/idea_repository.dart';
 import '../widgets/content_block_editor.dart';
@@ -1045,43 +1046,55 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
           const SizedBox(width: 8),
         ],
       ),
-      body: SingleChildScrollView(
-        controller: _scrollController,
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ===== 内容块区域 =====
-            StreamBuilder<List<ContentBlock>>(
-              stream: _blocksStream,
-              builder: (context, snapshot) {
-                final blocks = snapshot.data ?? [];
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (blocks.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Text('内容记录',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.grey[500])),
-                      ),
-                    ...blocks.map(
-                        (block) => _buildContentBlock(block, theme, isDark)),
-                    const SizedBox(height: 6),
-                    _buildAddBlockButton(isDark, theme),
-                  ],
-                );
-              },
+      body: Column(
+        children: [
+          // 处理状态横幅
+          _buildStatusBanner(theme, isDark),
+          // 分发链接
+          if (widget.payload.dispatchedRef != null &&
+              widget.payload.dispatchedRef!.isNotEmpty)
+            _buildDispatchedLink(isDark),
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ===== 内容块区域 =====
+                  StreamBuilder<List<ContentBlock>>(
+                    stream: _blocksStream,
+                    builder: (context, snapshot) {
+                      final blocks = snapshot.data ?? [];
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (blocks.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Text('内容记录',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.grey[500])),
+                            ),
+                          ...blocks.map((block) =>
+                              _buildContentBlock(block, theme, isDark)),
+                          const SizedBox(height: 6),
+                          _buildAddBlockButton(isDark, theme),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  _buildAiSection(theme, isDark),
+                  const SizedBox(height: 20),
+                  _buildTaskSection(theme, isDark),
+                ],
+              ),
             ),
-            const SizedBox(height: 20),
-            _buildAiSection(theme, isDark),
-            const SizedBox(height: 20),
-            _buildTaskSection(theme, isDark),
-          ],
-        ),
+          ),
+        ],
       ),
       bottomNavigationBar: StreamBuilder<List<AiTemplate>>(
         stream: _templatesStream,
@@ -1148,6 +1161,151 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  // ==================== 处理状态横幅 ====================
+
+  Widget _buildStatusBanner(ThemeData theme, bool isDark) {
+    final status = ProcessingStatus.fromString(widget.payload.processingStatus);
+
+    // synced_local 和 dispatched 不显示横幅
+    if (status == ProcessingStatus.syncedLocal ||
+        status == ProcessingStatus.dispatched) {
+      // dispatched 时如果有衰减标记，显示衰减提示
+      if (widget.payload.isEphemeral && status == ProcessingStatus.dispatched) {
+        return _buildEphemeralBanner(isDark);
+      }
+      return const SizedBox.shrink();
+    }
+
+    IconData icon;
+    String text;
+    Color color;
+
+    switch (status) {
+      case ProcessingStatus.vectorChecking:
+        icon = Icons.search_rounded;
+        text = '正在查重对比...';
+        color = const Color(0xFF42A5F5);
+        break;
+      case ProcessingStatus.aiRouting:
+        icon = Icons.auto_awesome_rounded;
+        text = 'AI 正在分析归类...';
+        color = Colors.amber;
+        break;
+      case ProcessingStatus.dispatching:
+        icon = Icons.call_split_rounded;
+        text = '正在分发到业务表...';
+        color = const Color(0xFF66BB6A);
+        break;
+      case ProcessingStatus.failedRetry:
+        icon = Icons.hourglass_empty_rounded;
+        text = '处理暂停，等待网络恢复...';
+        color = const Color(0xFFFFA726);
+        break;
+      default:
+        return const SizedBox.shrink();
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: color.withValues(alpha: isDark ? 0.15 : 0.08),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            text,
+            style: TextStyle(fontSize: 12, color: color),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEphemeralBanner(bool isDark) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: Colors.grey.withValues(alpha: isDark ? 0.15 : 0.08),
+      child: Row(
+        children: [
+          const Icon(Icons.auto_delete_rounded, size: 14, color: Colors.grey),
+          const SizedBox(width: 8),
+          Text(
+            '此内容将在 48 小时后自动归档',
+            style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== 分发链接 ====================
+
+  Widget _buildDispatchedLink(bool isDark) {
+    final ref = widget.payload.dispatchedRef!;
+    final parts = ref.split(':');
+    if (parts.length != 2) return const SizedBox.shrink();
+
+    final table = parts[0];
+    final id = parts[1];
+    String label;
+
+    switch (table) {
+      case 'crm_customers':
+        label = '查看关联客户';
+        break;
+      case 'ledger_entries':
+        label = '查看记账流水';
+        break;
+      case 'todo_schedules':
+        label = '查看待办日程';
+        break;
+      default:
+        label = '查看关联记录';
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: InkWell(
+        onTap: () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$label ($table #$id) — 详情页开发中'),
+              duration: const Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        },
+        child: Row(
+          children: [
+            Icon(Icons.link_rounded, size: 14, color: Colors.blue[400]),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.blue[400],
+                decoration: TextDecoration.underline,
+              ),
+            ),
+            const Spacer(),
+            Icon(Icons.chevron_right_rounded,
+                size: 16, color: Colors.grey[500]),
+          ],
         ),
       ),
     );

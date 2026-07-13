@@ -1,5 +1,6 @@
 import 'dart:convert';
 import '../../../core/database/database.dart';
+import '../../../core/enums/processing_status.dart';
 
 /// 闪念笔记数据仓库 —— 封装所有 HubPayload 的 CRUD 与查询逻辑
 /// 页面层禁止直连 AppDatabase，统一通过本仓库访问
@@ -33,8 +34,28 @@ class IdeaRepository {
   /// 实时监听所有闪念（按创建时间降序）
   Stream<List<HubPayload>> watchAll() => _db.watchAllPayloads();
 
+  /// 实时监听单条闪念
+  Stream<HubPayload?> watchById(int id) => _db.watchPayloadById(id);
+
   /// 获取标签使用统计
   Future<Map<String, int>> getTagStats() => _db.getTagStats();
+
+  // ==================== 处理状态管理 ====================
+
+  /// 更新处理流水线状态
+  Future<void> updateProcessingStatus(int id, ProcessingStatus status) =>
+      _db.updateProcessingStatus(id, status.toDbValue());
+
+  /// 更新分发引用
+  Future<void> updateDispatchedRef(int id, String ref) =>
+      _db.updateDispatchedRef(id, ref);
+
+  /// 更新 AI 抽取实体
+  Future<void> updateAiEntities(int id, String entitiesJson) =>
+      _db.updateAiEntities(id, entitiesJson);
+
+  /// 标记为废话
+  Future<void> markAsEphemeral(int id) => _db.markAsEphemeral(id);
 
   // ==================== 任务清单 ====================
 

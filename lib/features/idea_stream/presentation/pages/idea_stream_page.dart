@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../../core/di/service_locator.dart';
 import '../../../../core/database/database.dart';
+import '../../../../core/services/decay_manager.dart';
 import '../../data/idea_repository.dart';
+import '../widgets/processing_status_indicator.dart';
 import 'idea_detail_page.dart';
 
 class IdeaStreamPage extends StatefulWidget {
@@ -389,74 +391,97 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
           border: Border.all(
               color: theme.dividerColor.withValues(alpha: 0.08), width: 1),
         ),
-        padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
+        child: Stack(
           children: [
-            // ===== 装饰短横线：数量 = 内容块数量 =====
-            Builder(builder: (context) {
-              final count = (_blockCountCache[data.id] ?? 1).clamp(1, 12);
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Wrap(
-                  spacing: 5,
-                  runSpacing: 4,
-                  children: List.generate(count, (i) {
-                    return Container(
-                      width: 22,
-                      height: 2.5,
-                      decoration: BoxDecoration(
-                        color: theme.hintColor.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(2),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // ===== 装饰短横线：数量 = 内容块数量 =====
+                  Builder(builder: (context) {
+                    final count = (_blockCountCache[data.id] ?? 1).clamp(1, 12);
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Wrap(
+                        spacing: 5,
+                        runSpacing: 4,
+                        children: List.generate(count, (i) {
+                          return Container(
+                            width: 22,
+                            height: 2.5,
+                            decoration: BoxDecoration(
+                              color: theme.hintColor.withValues(alpha: 0.3),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          );
+                        }),
                       ),
                     );
                   }),
-                ),
-              );
-            }),
-            // 日期行
-            Text(dateStr,
-                style: TextStyle(color: theme.hintColor, fontSize: 11)),
-            const SizedBox(height: 8),
-            if (mediaPaths.isNotEmpty && !_isGridView) ...[
-              _buildImagePreview(mediaPaths),
-              const SizedBox(height: 6),
-            ],
-            Flexible(
-              child: Text(
-                displayText.isEmpty ? "快速归档记录" : displayText,
-                maxLines: _isGridView ? 5 : 6,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    fontSize: 14, height: 1.45, fontWeight: FontWeight.w500),
+                  // 日期行
+                  Text(dateStr,
+                      style: TextStyle(color: theme.hintColor, fontSize: 11)),
+                  const SizedBox(height: 8),
+                  if (mediaPaths.isNotEmpty && !_isGridView) ...[
+                    _buildImagePreview(mediaPaths),
+                    const SizedBox(height: 6),
+                  ],
+                  Flexible(
+                    child: Text(
+                      displayText.isEmpty ? "快速归档记录" : displayText,
+                      maxLines: _isGridView ? 5 : 6,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 14,
+                          height: 1.45,
+                          fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  // ===== 标签移至底部左对齐 =====
+                  if (hasTag) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF6B6B).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          data.intentTag.toUpperCase(),
+                          style: const TextStyle(
+                              color: Color(0xFFFF6B6B),
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-            // ===== 标签移至底部左对齐 =====
-            if (hasTag) ...[
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFF6B6B).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    data.intentTag.toUpperCase(),
-                    style: const TextStyle(
-                        color: Color(0xFFFF6B6B),
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold),
-                  ),
-                ),
+            // 处理状态指示器（右上角）
+            Positioned(
+              top: 8,
+              right: 8,
+              child: ProcessingStatusIndicator(
+                statusValue: data.processingStatus,
               ),
-            ],
+            ),
           ],
         ),
       ),
+    );
+
+    // 废话衰减透明度
+    final alpha = DecayManager.calculateAlpha(
+      data.isEphemeral,
+      data.decayDeadline,
+      data.createdAt,
     );
 
     return Dismissible(
@@ -494,7 +519,10 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
         child: const Icon(Icons.delete_outline_rounded,
             color: Colors.white, size: 22),
       ),
-      child: card,
+      child: Opacity(
+        opacity: alpha,
+        child: card,
+      ),
     );
   }
 
