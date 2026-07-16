@@ -5,8 +5,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../../../core/di/service_locator.dart';
-import '../../../core/database/database.dart';
 import '../../../core/services/ai_engine.dart';
+import '../data/chat_repository.dart';
 import '../../idea_stream/presentation/widgets/ai_chat_input_box.dart';
 import 'chat_history_search_page.dart';
 import '../../memory/presentation/long_term_memory_page.dart';
@@ -51,7 +51,7 @@ class _ChatPageState extends State<ChatPage> {
   /// 网页搜索开关
   bool _isWebSearchEnabled = false;
 
-  AppDatabase get db => getIt<AppDatabase>();
+  final ChatRepository _repo = getIt<ChatRepository>();
   AiEngine get _ai => getIt<AiEngine>();
 
   @override
@@ -108,17 +108,20 @@ class _ChatPageState extends State<ChatPage> {
     // 2. 深度阅读引擎：根据用户选择的知识库筛选 RAG 上下文
     String ragContext = '';
     if (_selectedKnowledgeIds.isNotEmpty) {
-      ragContext = await db.getRelevantContextForFiles(text, _selectedKnowledgeIds.toList());
+      ragContext = await _repo.getRelevantContextForFiles(
+        text,
+        _selectedKnowledgeIds.toList(),
+      );
     } else {
       // 未选择知识库时，使用全部激活文件
-      ragContext = await db.getRelevantContext(text);
+      ragContext = await _repo.getRelevantContext(text);
     }
     if (ragContext.isNotEmpty) {
       debugPrint("RAG 检索命中，上下文长度: ${ragContext.length}");
     }
 
     // 3. 构建记忆增强 System Prompt
-    final memories = await db.getAllMemoryTexts();
+    final memories = await _repo.getAllMemoryTexts();
     String systemPrompt =
         '你是一个部署在本地的智能综合助理 Locus 的右脑。请用专业、严谨且有条理的语言回答问题。遇到结构化数据请使用 Markdown。';
     if (memories.isNotEmpty) {
@@ -207,7 +210,7 @@ class _ChatPageState extends State<ChatPage> {
               if (match != null) {
                 final memoryToSave = match.group(1);
                 if (memoryToSave != null && memoryToSave.trim().isNotEmpty) {
-                  await db.addMemory(memoryToSave.trim(), tags: 'AI自动提取');
+                  await _repo.addMemory(memoryToSave.trim(), tags: 'AI自动提取');
                   currentReply =
                       currentReply.replaceAll(memoryRegex, '').trim();
                 }
@@ -217,12 +220,12 @@ class _ChatPageState extends State<ChatPage> {
               if (_currentSessionId == null) {
                 String sessionTitle =
                     text.length > 15 ? '${text.substring(0, 15)}...' : text;
-                _currentSessionId = await db.createSession(sessionTitle);
+                _currentSessionId = await _repo.createSession(sessionTitle);
               }
 
               // 保存用户的提问和 AI 的回答
-              await db.insertMessage(_currentSessionId!, 'user', text);
-              await db.insertMessage(
+              await _repo.insertMessage(_currentSessionId!, 'user', text);
+              await _repo.insertMessage(
                   _currentSessionId!, 'assistant', currentReply);
 
               break;
@@ -301,7 +304,7 @@ class _ChatPageState extends State<ChatPage> {
       _messages.clear();
     });
 
-    final historyMessages = await db.getMessagesForSession(sessionId);
+    final historyMessages = await _repo.getMessagesForSession(sessionId);
 
     setState(() {
       _currentSessionId = sessionId;
@@ -426,7 +429,7 @@ class _ChatPageState extends State<ChatPage> {
               ),
             ),
           StreamBuilder<List<KnowledgeFile>>(
-            stream: db.watchAllFiles(),
+            stream: _repo.watchAllFiles(),
             builder: (context, snapshot) {
               return AiChatInputBox(
                 textController: _textController,

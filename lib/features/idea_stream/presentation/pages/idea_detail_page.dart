@@ -1,13 +1,17 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../../core/di/service_locator.dart';
-import '../../../../core/database/database.dart';
 import '../../../../core/services/ai_engine.dart';
+import '../../../../core/services/ai_router_service.dart';
+import '../../../../core/services/dispatch_service.dart';
+import '../../../../core/services/processing_pipeline.dart';
 import '../../../../core/enums/processing_status.dart';
 import '../../../../core/theme/design_system.dart';
 import '../../data/idea_repository.dart';
+import '../../../../core/constants/field_labels.dart';
 import '../widgets/content_block_editor.dart';
 import '../widgets/full_block_editor.dart';
 import '../widgets/export_bottom_sheet.dart';
@@ -45,9 +49,8 @@ class IdeaDetailPage extends StatefulWidget {
 class _IdeaDetailPageState extends State<IdeaDetailPage> {
   final _repo = getIt<IdeaRepository>();
   final _ai = getIt<AiEngine>();
-
-  final TextEditingController _newTaskController = TextEditingController();
-  bool _isEnteringTask = false;
+  final _pipeline = getIt<ProcessingPipeline>();
+  late final DispatchService _dispatchService;
 
   // AI 对话输入
   final TextEditingController _aiInputController = TextEditingController();
@@ -62,6 +65,10 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
 
   final Set<int> _expandedTags = {}; // 标签展开状态
 
+  /// 处理状态横幅
+  bool _showStatusBanner = true;
+  Timer? _statusBannerTimer;
+
   /// 编辑模式：正在编辑的用户消息ID，以及其配对的AI回复ID
   int? _editingUserConvId;
   int? _editingPairedAiConvId;
@@ -70,7 +77,6 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
 
   late final Stream<List<ContentBlock>> _blocksStream;
   late final Stream<List<AiConversation>> _conversationsStream;
-  late final Stream<List<IdeaTask>> _tasksStream;
   late final Stream<List<AiTemplate>> _templatesStream;
   late final TemplateRepository _templateRepo;
 
@@ -79,13 +85,24 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     super.initState();
     _blocksStream = _repo.watchBlocks(widget.payload.id);
     _conversationsStream = _repo.watchConversations(widget.payload.id);
-    _tasksStream = _repo.watchTasks(widget.payload.id);
     _templateRepo = getIt<TemplateRepository>();
     _templatesStream = _templateRepo.watchEnabled();
+    _dispatchService = getIt<DispatchService>();
     _selectedModel = _ai.modelName;
     _initContentBlocks();
     _initAiConversations();
     _initTitle();
+    _resetStatusBanner();
+  }
+
+  @override
+  void didUpdateWidget(covariant IdeaDetailPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 当 payload 更新时（如处理状态变更），重新评估横幅
+    if (oldWidget.payload.processingStatus != widget.payload.processingStatus ||
+        oldWidget.payload.id != widget.payload.id) {
+      _resetStatusBanner();
+    }
   }
 
   /// 初始化内容块：如果 DB 中没有块，将 payload.rawText 作为第一个块写入
@@ -138,8 +155,10 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
               return;
             }
             // 去除 Markdown 标题标记
-            final cleanTitle =
-                firstLine.replaceFirst(RegExp(r'^#{1,3}\s+'), '');
+            final cleanTitle = firstLine.replaceFirst(
+              RegExp(r'^#{1,3}\s+'),
+              '',
+            );
             _currentTitle = cleanTitle.length > 30
                 ? '${cleanTitle.substring(0, 30)}...'
                 : cleanTitle;
@@ -153,6 +172,31 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     }
   }
 
+  bool get _hasActiveInbox {
+    final s = widget.payload.processingStatus;
+    return s == ProcessingStatus.pendingReview.toDbValue() ||
+        s == ProcessingStatus.dispatched.toDbValue() ||
+        s == ProcessingStatus.decayed.toDbValue();
+  }
+
+  void _resetStatusBanner() {
+    final status = ProcessingStatus.fromString(widget.payload.processingStatus);
+    // 已完成状态不显示横幅
+    if (status == ProcessingStatus.dispatched ||
+        status == ProcessingStatus.decayed) {
+      _showStatusBanner = false;
+      return;
+    }
+    // 处理中状态：显示横幅，1.5s 后隐藏
+    _showStatusBanner = true;
+    _statusBannerTimer?.cancel();
+    _statusBannerTimer = Timer(const Duration(milliseconds: 1500), () {
+      if (mounted) {
+        setState(() => _showStatusBanner = false);
+      }
+    });
+  }
+
   void _confirmDelete() async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -161,12 +205,13 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         content: const Text('删除后将无法恢复，确定要删除这条闪念吗？'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
           TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child:
-                  const Text('删除', style: TextStyle(color: Colors.redAccent))),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除', style: TextStyle(color: Colors.redAccent)),
+          ),
         ],
       ),
     );
@@ -188,8 +233,9 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
           decoration: InputDecoration(
             hintText: '输入标题',
             filled: true,
-            fillColor:
-                isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
+            fillColor: isDark
+                ? const Color(0xFF262626)
+                : const Color(0xFFF1F3F5),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide.none,
@@ -200,30 +246,705 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             final newTitle = val.trim();
             _currentTitle = newTitle.isEmpty ? '' : newTitle;
             _repo.updateTitle(
-                widget.payload.id, newTitle.isEmpty ? null : newTitle);
+              widget.payload.id,
+              newTitle.isEmpty ? null : newTitle,
+            );
             setState(() {});
             Navigator.pop(ctx);
           },
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
           FilledButton(
             onPressed: () {
               final newTitle = controller.text.trim();
               _currentTitle = newTitle.isEmpty ? '' : newTitle;
               _repo.updateTitle(
-                  widget.payload.id, newTitle.isEmpty ? null : newTitle);
+                widget.payload.id,
+                newTitle.isEmpty ? null : newTitle,
+              );
               setState(() {});
               Navigator.pop(ctx);
             },
             style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFFF6B6B)),
+              backgroundColor: const Color(0xFFFF6B6B),
+            ),
             child: const Text('确定', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
+  }
+
+  /// pending 状态下的三个图标按钮，供 _InboxFieldList 尾部使用
+  Widget _buildPendingActionIcons(
+    DispatchInboxData inbox,
+    bool confirmDisabled,
+    ThemeData theme,
+  ) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 36,
+          height: 36,
+          child: IconButton(
+            onPressed: () => _regenerateDispatch(inbox),
+            icon: const Icon(Icons.refresh, size: 20),
+            padding: EdgeInsets.zero,
+            tooltip: '重新生成',
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+        const SizedBox(width: 12),
+        SizedBox(
+          width: 36,
+          height: 36,
+          child: IconButton(
+            onPressed: () => _rejectInbox(inbox),
+            icon: Icon(Icons.close, size: 20, color: theme.colorScheme.error),
+            padding: EdgeInsets.zero,
+            tooltip: '拒绝',
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+        const SizedBox(width: 12),
+        SizedBox(
+          width: 36,
+          height: 36,
+          child: IconButton(
+            onPressed: confirmDisabled ? null : () => _confirmDispatch(inbox),
+            icon: Icon(
+              Icons.check,
+              size: 20,
+              color: confirmDisabled
+                  ? theme.disabledColor
+                  : theme.colorScheme.primary,
+            ),
+            padding: EdgeInsets.zero,
+            tooltip: '确认分发',
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 已确认状态下的两个图标按钮（编辑数据 + 撤销分发），供 _InboxFieldList 尾部使用
+  Widget _buildConfirmedActionIcons(DispatchInboxData inbox, ThemeData theme) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 36,
+          height: 36,
+          child: IconButton(
+            icon: const Icon(Icons.edit, size: 20),
+            onPressed: () => _editInboxData(inbox),
+            padding: EdgeInsets.zero,
+            tooltip: '编辑数据',
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+        const SizedBox(width: 12),
+        SizedBox(
+          width: 36,
+          height: 36,
+          child: IconButton(
+            icon: Icon(Icons.undo, size: 20, color: theme.colorScheme.error),
+            onPressed: () => _undoDispatch(inbox),
+            padding: EdgeInsets.zero,
+            tooltip: '撤销分发',
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// AI 收件箱审核卡片 —— 内嵌在详情页 AI 对话区下方
+  /// v14: 中文字段标签、手动编辑、缺键补录、多目的地同步
+  Widget _buildDispatchInboxCard(
+    ThemeData theme,
+    bool isDark,
+    DispatchInboxData inbox, {
+    String? dispatchedRef,
+  }) {
+    final entities = _parseEntities(inbox.extractedData);
+    final isConfirmed = inbox.status == 'confirmed';
+    final isRejected = inbox.status == 'rejected';
+    final intentTag = inbox.intentTag;
+    final missingKeys = RequiredFields.detectMissing(intentTag, entities);
+    final hasMissing = missingKeys.isNotEmpty;
+    // 用户可能编辑了 entities，需要实时检测
+    final currentMissing = _getCurrentMissing(intentTag, entities);
+    final confirmDisabled = currentMissing.isNotEmpty;
+
+    // 可选同步目标（排除主目标本身）
+    final availableTargets = _getAvailableSyncTargets(intentTag);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFFBFBFB),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.dividerColor.withValues(alpha: 0.06),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 标题行
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _intentColor(intentTag).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _intentIcon(intentTag),
+                      size: 14,
+                      color: _intentColor(intentTag),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'AI 识别 → $intentTag${isConfirmed
+                          ? " (已确认)"
+                          : isRejected
+                          ? " (已拒绝)"
+                          : ""}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: _intentColor(intentTag),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              if (isConfirmed)
+                Icon(Icons.check_circle, size: 16, color: Colors.green[400])
+              else if (isRejected)
+                const Icon(Icons.cancel, size: 16, color: Colors.redAccent)
+              else
+                const Icon(
+                  Icons.pending_outlined,
+                  size: 16,
+                  color: Colors.amber,
+                ),
+            ],
+          ),
+          // 缺键警告横幅
+          if (!isConfirmed && !isRejected && hasMissing) ...[
+            const SizedBox(height: 8),
+            _buildMissingFieldsBanner(theme, missingKeys),
+          ],
+          const SizedBox(height: 8),
+          // AI 抽取字段 —— 可点击编辑；pending 状态时将操作图标并入字段底部行
+          if (entities.isNotEmpty)
+            _buildInboxFields(
+              theme,
+              isDark,
+              entities,
+              intentTag,
+              false,
+              inbox.id,
+              trailingActions: isConfirmed
+                  ? _buildConfirmedActionIcons(inbox, theme)
+                  : isRejected
+                  ? null
+                  : _buildPendingActionIcons(inbox, confirmDisabled, theme),
+            ),
+          // 已确认且有分发引用时显示链接
+          if (isConfirmed &&
+              dispatchedRef != null &&
+              dispatchedRef.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _buildInboxDispatchedLinkRow(dispatchedRef),
+          ],
+          // 多目的地勾选区域（未确认时显示）
+          if (!isConfirmed && availableTargets.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _buildSyncTargetsCheckboxes(theme, availableTargets, intentTag),
+          ],
+          // 操作按钮：pending/已确认的图标按钮已并入字段区域，此处仅渲染已拒绝的按钮
+          if (isRejected) ...[
+            const SizedBox(height: 8),
+            _buildInboxActions(inbox),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 获取可选的额外同步目标（排除主意图对应的表）
+  List<String> _getAvailableSyncTargets(String intentTag) {
+    const allTargets = ['crm_customers', 'ledger_entries', 'todo_schedules'];
+    final mainTarget = _targetTableForIntent(intentTag);
+    return allTargets.where((t) => t != mainTarget).toList();
+  }
+
+  String _targetTableForIntent(String intentTag) {
+    switch (intentTag) {
+      case 'CRM':
+        return 'crm_customers';
+      case 'LEDGER':
+        return 'ledger_entries';
+      case 'TODO':
+        return 'todo_schedules';
+      default:
+        return '';
+    }
+  }
+
+  /// 当前实体数据的缺失核心键值（用户可能已在本地编辑过）
+  List<String> _getCurrentMissing(
+    String intentTag,
+    Map<String, dynamic> entities,
+  ) {
+    return RequiredFields.detectMissing(intentTag, entities);
+  }
+
+  /// 用户编辑后的实体数据覆盖（本地内存状态）
+  final Map<int, Map<String, dynamic>> _editedEntities = {};
+
+  /// 获取当前生效的实体数据（含用户编辑）
+  Map<String, dynamic> _getEffectiveEntities(
+    int inboxId,
+    Map<String, dynamic> original,
+  ) {
+    return _editedEntities[inboxId] ?? original;
+  }
+
+  /// 缺键警告横幅
+  Widget _buildMissingFieldsBanner(ThemeData theme, List<String> missingKeys) {
+    final labels = missingKeys.join('、');
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.amber.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.warning_amber_rounded,
+            size: 16,
+            color: Colors.amber,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '缺少关键信息：$labels',
+              style: const TextStyle(fontSize: 12, color: Color(0xFFB8860B)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 可编辑字段列表 —— 每个字段显示中文标签，点击可编辑
+  Widget _buildInboxFields(
+    ThemeData theme,
+    bool isDark,
+    Map<String, dynamic> entities,
+    String intentTag,
+    bool isConfirmed,
+    int inboxId, {
+    Widget? trailingActions,
+  }) {
+    return _InboxFieldList(
+      entities: entities,
+      intentTag: intentTag,
+      isConfirmed: isConfirmed,
+      onFieldEdited: (key, value) {
+        final updated = Map<String, dynamic>.from(entities);
+        if (value.isEmpty) {
+          updated.remove(key);
+        } else {
+          updated[key] = value;
+        }
+        _dispatchService.updateInboxExtractedData(inboxId, updated);
+        setState(() {});
+      },
+      fieldLabels: FieldLabels,
+      trailingActions: trailingActions,
+    );
+  }
+
+  /// 多目的地勾选区域
+  Widget _buildSyncTargetsCheckboxes(
+    ThemeData theme,
+    List<String> availableTargets,
+    String intentTag,
+  ) {
+    // 用 state 记录用户勾选的额外目标
+    return StatefulBuilder(
+      builder: (context, setLocalState) {
+        return Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest.withValues(
+              alpha: 0.3,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '同时写入',
+                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: availableTargets.map((target) {
+                  final isChecked = _selectedSyncTargets.contains(target);
+                  final label = _syncTargetLabel(target);
+                  return InkWell(
+                    onTap: () {
+                      setState(() {
+                        if (isChecked) {
+                          _selectedSyncTargets.remove(target);
+                        } else {
+                          _selectedSyncTargets.add(target);
+                        }
+                      });
+                      setLocalState(() {});
+                    },
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isChecked
+                            ? const Color(0xFFFF6B6B).withValues(alpha: 0.12)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: isChecked
+                              ? const Color(0xFFFF6B6B).withValues(alpha: 0.3)
+                              : Colors.grey.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isChecked
+                                ? Icons.check_box
+                                : Icons.check_box_outline_blank,
+                            size: 16,
+                            color: isChecked
+                                ? const Color(0xFFFF6B6B)
+                                : Colors.grey,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            label,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isChecked
+                                  ? const Color(0xFFFF6B6B)
+                                  : Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  String _syncTargetLabel(String table) {
+    switch (table) {
+      case 'crm_customers':
+        return '同时创建客户';
+      case 'ledger_entries':
+        return '同时写入记账';
+      case 'todo_schedules':
+        return '同时创建待办';
+      default:
+        return table;
+    }
+  }
+
+  /// 用户当前选中的额外同步目标
+  final Set<String> _selectedSyncTargets = {};
+
+  /// 获取当前 payload 的所有 pending/confirmed 收件箱列表
+  Stream<List<DispatchInboxData>> _watchPendingInboxList() {
+    return _repo.watchActiveDispatchInbox(widget.payload.id);
+  }
+
+  Future<void> _refreshPreviewAndRequeue() async {
+    final blocks = await _repo.watchBlocks(widget.payload.id).first;
+    final leadText = blocks.isEmpty ? '' : blocks.first.content.trim();
+    final preview = leadText.length > 200
+        ? '${leadText.substring(0, 200)}...'
+        : leadText;
+    await _repo.update(widget.payload.id, preview, widget.payload.intentTag);
+    if (preview.isEmpty) return;
+    _pipeline.enqueue(widget.payload.id);
+    if (preview.isEmpty) return;
+  }
+
+  Widget _buildFieldsPreview(ThemeData theme, Map<String, dynamic> entities) {
+    final displayable = entities.entries
+        .where((e) => e.value != null && e.value.toString().isNotEmpty)
+        .toList();
+    if (displayable.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 4,
+        children: displayable.map((e) {
+          final label = _fieldLabel(e.key);
+          return Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: '$label: ',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                  ),
+                ),
+                TextSpan(
+                  text: e.value.toString(),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildInboxActions(DispatchInboxData inbox) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        // 已拒绝：编辑后重新规则化
+        OutlinedButton.icon(
+          onPressed: () => _reOpenAndRetry(inbox),
+          icon: const Icon(Icons.refresh, size: 16),
+          label: const Text('编辑后重新规则化', style: TextStyle(fontSize: 12)),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            visualDensity: VisualDensity.compact,
+            foregroundColor: const Color(0xFFFF6B6B),
+            side: const BorderSide(color: Color(0xFFFF6B6B)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _confirmDispatch(DispatchInboxData inbox) async {
+    final mainTarget = _targetTableForIntent(inbox.intentTag);
+    // 构建完整目标列表：主目标 + 用户勾选的额外目标
+    final targets = <String>[mainTarget];
+    targets.addAll(_selectedSyncTargets);
+
+    final results = await _dispatchService.executeDispatch(
+      inbox.id,
+      syncTargets: targets,
+    );
+
+    _selectedSyncTargets.clear();
+
+    if (mounted) {
+      final successCount = results.where((r) => r.success).length;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('已分发到 $successCount 个目标模块'),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _rejectInbox(DispatchInboxData inbox) async {
+    await _dispatchService.rejectDispatch(inbox.id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('已拒绝分发'),
+          duration: Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _undoDispatch(DispatchInboxData inbox) async {
+    await _dispatchService.undoDispatch(inbox.payloadId);
+    if (mounted) {
+      // 刷新 dispatchedRef
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('已撤销分发'),
+          duration: Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  /// 拒绝后重新规则化：重置收件箱状态并重新提交处理
+  Future<void> _reOpenAndRetry(DispatchInboxData inbox) async {
+    await _dispatchService.reopenInbox(inbox.id);
+    _pipeline.enqueue(inbox.payloadId);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('已重新提交规则化处理'),
+          duration: Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  /// 编辑已确认收件箱的数据（提示用户先撤销分发）
+  Future<void> _editInboxData(DispatchInboxData inbox) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('编辑已确认数据'),
+        content: const Text('此记录已确认分发。编辑字段后需撤销分发并重新规则化。\n\n是否继续编辑？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFFF6B6B),
+            ),
+            child: const Text('继续编辑', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('请直接点击字段进行编辑，编辑完成后可撤销分发并重新规则化'),
+          duration: Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _regenerateDispatch(DispatchInboxData inbox) async {
+    await _dispatchService.rejectDispatch(inbox.id);
+    await _repo.resetToSyncedLocal(inbox.payloadId);
+    _pipeline.enqueue(inbox.payloadId);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('已重新提交处理'),
+          duration: Duration(seconds: 1),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Map<String, dynamic> _parseEntities(String json) {
+    try {
+      return jsonDecode(json) as Map<String, dynamic>;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  String _fieldLabel(String key) {
+    const labels = {
+      'person_name': '客户名',
+      'company': '公司',
+      'contact': '联系方式',
+      'amount': '金额',
+      'ledger_category': '分类',
+      'type': '收支',
+      'title': '标题',
+      'priority': '优先级',
+      'notes': '备注',
+      'description': '描述',
+      'due_date': '截止日期',
+    };
+    return labels[key] ?? key;
+  }
+
+  Color _intentColor(String tag) {
+    switch (tag) {
+      case 'CRM':
+        return const Color(0xFF4ECDC4);
+      case 'LEDGER':
+        return const Color(0xFFFF6B6B);
+      case 'TODO':
+        return const Color(0xFF45B7D1);
+      default:
+        return const Color(0xFF888888);
+    }
+  }
+
+  IconData _intentIcon(String tag) {
+    switch (tag) {
+      case 'CRM':
+        return Icons.person_outline;
+      case 'LEDGER':
+        return Icons.account_balance_wallet_outlined;
+      case 'TODO':
+        return Icons.check_circle_outline;
+      default:
+        return Icons.push_pin_outlined;
+    }
   }
 
   static const Map<String, String> _tagLabels = {
@@ -249,9 +970,11 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
               if (isCurrent)
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
-                  child: Icon(Icons.check_rounded,
-                      size: 16,
-                      color: const Color(0xFFFF6B6B).withValues(alpha: 0.7)),
+                  child: Icon(
+                    Icons.check_rounded,
+                    size: 16,
+                    color: const Color(0xFFFF6B6B).withValues(alpha: 0.7),
+                  ),
                 ),
               Text(entry.value, style: const TextStyle(fontSize: 13)),
             ],
@@ -270,6 +993,117 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         );
       }
     });
+  }
+
+  /// v16: @ 模板选择器回调 — 用户通过 @ 选择了规则化模板后执行
+  Future<void> _onRuleTemplateSelected(AiTemplate template) async {
+    // 显示加载状态
+    setState(() => _isAiWorking = true);
+
+    try {
+      // 收集内容块文本
+      final blocks = await _repo.watchBlocks(widget.payload.id).first;
+      final contentText = blocks.isEmpty
+          ? widget.payload.rawText
+          : blocks.map((b) => b.content).join('\n---\n');
+
+      if (contentText.trim().isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('无内容可进行规则化'),
+              duration: Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
+
+      // 调用 AI 执行模板的 prompt
+      final response = await _ai.chat(
+        template.prompt,
+        '请根据以下内容提取结构化信息：\n\n$contentText',
+      );
+
+      // 解析 AI 返回的 JSON
+      Map<String, dynamic> extracted;
+      try {
+        String jsonStr = response.trim();
+        final jsonMatch = RegExp(
+          r'```(?:json)?\s*\n?([\s\S]*?)\n?```',
+        ).firstMatch(jsonStr);
+        if (jsonMatch != null) {
+          jsonStr = jsonMatch.group(1)!.trim();
+        }
+        extracted = jsonDecode(jsonStr) as Map<String, dynamic>;
+      } catch (_) {
+        extracted = {'description': response};
+      }
+
+      // 推断意图标签
+      final intentTag = _inferIntentFromTemplate(template.name, extracted);
+
+      // 创建或更新收件箱
+      final routingResult = RoutingResult(
+        intentTag: intentTag,
+        entities: extracted,
+        isEphemeral: false,
+      );
+
+      await _dispatchService.stageForReview(widget.payload.id, routingResult);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('规则化完成，已送入收件箱'),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('规则化失败：${e.toString()}'),
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isAiWorking = false);
+    }
+  }
+
+  /// 从模板名称推断意图标签
+  String _inferIntentFromTemplate(
+    String templateName,
+    Map<String, dynamic> entities,
+  ) {
+    final lower = templateName.toLowerCase();
+    if (lower.contains('客户') || lower.contains('crm') || lower.contains('联系人'))
+      return 'CRM';
+    if (lower.contains('记账') ||
+        lower.contains('账单') ||
+        lower.contains('ledger') ||
+        lower.contains('花费'))
+      return 'LEDGER';
+    if (lower.contains('待办') ||
+        lower.contains('任务') ||
+        lower.contains('todo') ||
+        lower.contains('计划'))
+      return 'TODO';
+    // 从 entities 中推断
+    if (entities.containsKey('person_name') || entities.containsKey('company'))
+      return 'CRM';
+    if (entities.containsKey('amount') ||
+        entities.containsKey('ledger_category'))
+      return 'LEDGER';
+    if (entities.containsKey('title') || entities.containsKey('priority'))
+      return 'TODO';
+    return 'NOTE';
   }
 
   Future<void> _showExportSheet(bool isDark) async {
@@ -309,7 +1143,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
 
   @override
   void dispose() {
-    _newTaskController.dispose();
+    _statusBannerTimer?.cancel();
     _aiInputController.dispose();
     _aiInputFocus.dispose();
     _scrollController.dispose();
@@ -335,7 +1169,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         result.content,
         result.mediaPaths,
       );
-      // 不再覆盖摘要 — 保持首块生成的摘要不变
+      await _refreshPreviewAndRequeue();
     }
   }
 
@@ -345,20 +1179,23 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
       builder: (ctx) => AlertDialog(
         title: const Text('删除此内容块'),
         content: Text(
-            '确定删除此块？\n"${block.content.length > 40 ? '${block.content.substring(0, 40)}...' : block.content}"'),
+          '确定删除此块？\n"${block.content.length > 40 ? '${block.content.substring(0, 40)}...' : block.content}"',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
           TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child:
-                  const Text('删除', style: TextStyle(color: Colors.redAccent))),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除', style: TextStyle(color: Colors.redAccent)),
+          ),
         ],
       ),
     );
     if (confirm == true && mounted) {
       await _repo.removeBlock(block.id);
+      await _refreshPreviewAndRequeue();
     }
   }
 
@@ -371,12 +1208,18 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     if (mounted) {
       if (!polished.startsWith('[AI离线]')) {
         await _repo.updateBlockContent(
-            block.id, polished, _parseMediaPaths(block.mediaPaths));
+          block.id,
+          polished,
+          _parseMediaPaths(block.mediaPaths),
+        );
         await _repo.markBlockPolished(block.id);
+        await _refreshPreviewAndRequeue();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('AI 暂不可用，已标记待处理'), duration: Duration(seconds: 2)),
+            content: Text('AI 暂不可用，已标记待处理'),
+            duration: Duration(seconds: 2),
+          ),
         );
       }
       setState(() {
@@ -423,6 +1266,26 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
       await _repo.addConversation(widget.payload.id, 'assistant', response);
       setState(() => _isAiWorking = false);
       _scrollToBottom();
+    }
+  }
+
+  /// 处理对话模板选择：直接发送给AI，结果以内容块展示
+  Future<void> _handleChatTemplateSelected(AiTemplate template) async {
+    setState(() => _isAiWorking = true);
+
+    final blocks = await _repo.watchBlocks(widget.payload.id).first;
+    final contextText = blocks.map((b) => b.content).join('\n---\n');
+
+    final response = await _ai.chat(
+      '用户正在查看一条笔记，内容如下：\n$contextText\n\n请根据用户的问题提供帮助。简洁回答。',
+      template.prompt,
+    );
+
+    if (mounted && response.isNotEmpty) {
+      await _repo.addBlock(widget.payload.id, 'text', response, [], 'ai');
+      setState(() => _isAiWorking = false);
+    } else if (mounted) {
+      setState(() => _isAiWorking = false);
     }
   }
 
@@ -478,13 +1341,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         default:
           blockType = 'file';
       }
-      await _repo.addBlock(
-        widget.payload.id,
-        blockType,
-        '',
-        [path],
-        'manual',
-      );
+      await _repo.addBlock(widget.payload.id, blockType, '', [path], 'manual');
     }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -546,10 +1403,14 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
               onTap: () => Navigator.pop(ctx, 'copy'),
             ),
             ListTile(
-              leading:
-                  const Icon(Icons.delete_outline, color: Colors.redAccent),
-              title:
-                  const Text('删除', style: TextStyle(color: Colors.redAccent)),
+              leading: const Icon(
+                Icons.delete_outline,
+                color: Colors.redAccent,
+              ),
+              title: const Text(
+                '删除',
+                style: TextStyle(color: Colors.redAccent),
+              ),
               onTap: () => Navigator.pop(ctx, 'delete'),
             ),
           ],
@@ -578,8 +1439,9 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         content: const Text('确定删除此提问及 AI 回复？'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('取消')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('删除', style: TextStyle(color: Colors.redAccent)),
@@ -620,10 +1482,14 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
               onTap: () => Navigator.pop(ctx, 'regenerate'),
             ),
             ListTile(
-              leading:
-                  const Icon(Icons.delete_outline, color: Colors.redAccent),
-              title:
-                  const Text('删除', style: TextStyle(color: Colors.redAccent)),
+              leading: const Icon(
+                Icons.delete_outline,
+                color: Colors.redAccent,
+              ),
+              title: const Text(
+                '删除',
+                style: TextStyle(color: Colors.redAccent),
+              ),
               onTap: () => Navigator.pop(ctx, 'delete'),
             ),
           ],
@@ -672,114 +1538,121 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     final dateStr = _formatBlockTime(block.createdAt);
 
     return Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFFBFBFB),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-              color: theme.dividerColor.withValues(alpha: 0.06), width: 1),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFFBFBFB),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: theme.dividerColor.withValues(alpha: 0.06),
+          width: 1,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 块头部：来源图标 + 时间 + 操作按钮
-            Row(
-              children: [
-                Icon(
-                  isVoice ? Icons.mic_rounded : Icons.text_snippet_rounded,
-                  size: 14,
-                  color: isVoice
-                      ? Colors.orangeAccent.withValues(alpha: 0.7)
-                      : Colors.grey[500],
-                ),
-                const SizedBox(width: 6),
-                Text(dateStr,
-                    style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-                const Spacer(),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 块头部：来源图标 + 时间 + 操作按钮
+          Row(
+            children: [
+              Icon(
+                isVoice ? Icons.mic_rounded : Icons.text_snippet_rounded,
+                size: 14,
+                color: isVoice
+                    ? Colors.orangeAccent.withValues(alpha: 0.7)
+                    : Colors.grey[500],
+              ),
+              const SizedBox(width: 6),
+              Text(
+                dateStr,
+                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+              ),
+              const Spacer(),
+              _BlockIconButton(
+                icon: Icons.edit_outlined,
+                label: '编辑',
+                onTap: () => _openBlockEditorForEdit(block),
+              ),
+              if (isVoice)
                 _BlockIconButton(
-                  icon: Icons.edit_outlined,
-                  label: '编辑',
-                  onTap: () => _openBlockEditorForEdit(block),
+                  icon: Icons.play_arrow_rounded,
+                  label: '播放',
+                  onTap: () {},
                 ),
-                if (isVoice)
-                  _BlockIconButton(
-                    icon: Icons.play_arrow_rounded,
-                    label: '播放',
-                    onTap: () {},
-                  ),
-                _BlockIconButton(
-                  icon: Icons.delete_outline_rounded,
-                  label: null,
-                  color: Colors.grey[500],
-                  onTap: () => _deleteBlock(block),
-                ),
-              ],
-            ),
-            if (block.content.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              SelectionArea(
-                  child: _renderMarkdownPreview(block.content, isDark)),
-            ],
-            // 媒体预览
-            if (mediaPaths.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: mediaPaths.map((path) {
-                  final isImage = path.toLowerCase().endsWith('.jpg') ||
-                      path.toLowerCase().endsWith('.png') ||
-                      path.toLowerCase().endsWith('.jpeg');
-                  return GestureDetector(
-                    onTap: isImage ? () => _showFullScreenImage(path) : null,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: SizedBox(
-                        width: (MediaQuery.of(context).size.width - 84) / 3,
-                        height: 90,
-                        child: isImage
-                            ? Image.file(File(path), fit: BoxFit.cover)
-                            : Container(
-                                color: isDark
-                                    ? const Color(0xFF2A2A2A)
-                                    : const Color(0xFFF0F0F0),
-                                child: const Center(
-                                    child: Icon(Icons.insert_drive_file,
-                                        color: Colors.grey, size: 24)),
-                              ),
-                      ),
-                    ),
-                  );
-                }).toList(),
+              _BlockIconButton(
+                icon: Icons.delete_outline_rounded,
+                label: null,
+                color: Colors.grey[500],
+                onTap: () => _deleteBlock(block),
               ),
             ],
-            // ===== 标签 + AI 润色 + 复制导出（同行） =====
+          ),
+          if (block.content.isNotEmpty) ...[
             const SizedBox(height: 8),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // 左侧：AI润色 + 标签
-                Expanded(
-                  child: _buildBlockBottomLeft(block, theme, isDark),
-                ),
-                const SizedBox(width: 24),
-                // 右侧：复制 + 导出
-                _BlockIconButton(
-                  icon: Icons.copy_rounded,
-                  label: '复制',
-                  onTap: () => _copyBlockContent(block),
-                ),
-                const SizedBox(width: 4),
-                _BlockIconButton(
-                  icon: Icons.ios_share_rounded,
-                  label: '导出',
-                  onTap: () => _exportBlockContent(block),
-                ),
-              ],
+            SelectionArea(child: _renderMarkdownPreview(block.content, isDark)),
+          ],
+          // 媒体预览
+          if (mediaPaths.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: mediaPaths.map((path) {
+                final isImage =
+                    path.toLowerCase().endsWith('.jpg') ||
+                    path.toLowerCase().endsWith('.png') ||
+                    path.toLowerCase().endsWith('.jpeg');
+                return GestureDetector(
+                  onTap: isImage ? () => _showFullScreenImage(path) : null,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: SizedBox(
+                      width: (MediaQuery.of(context).size.width - 84) / 3,
+                      height: 90,
+                      child: isImage
+                          ? Image.file(File(path), fit: BoxFit.cover)
+                          : Container(
+                              color: isDark
+                                  ? const Color(0xFF2A2A2A)
+                                  : const Color(0xFFF0F0F0),
+                              child: const Center(
+                                child: Icon(
+                                  Icons.insert_drive_file,
+                                  color: Colors.grey,
+                                  size: 24,
+                                ),
+                              ),
+                            ),
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
           ],
-        ));
+          // ===== 标签 + AI 润色 + 复制导出（同行） =====
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // 左侧：AI润色 + 标签
+              Expanded(child: _buildBlockBottomLeft(block, theme, isDark)),
+              const SizedBox(width: 24),
+              // 右侧：复制 + 导出
+              _BlockIconButton(
+                icon: Icons.copy_rounded,
+                label: '复制',
+                onTap: () => _copyBlockContent(block),
+              ),
+              const SizedBox(width: 4),
+              _BlockIconButton(
+                icon: Icons.ios_share_rounded,
+                label: '导出',
+                onTap: () => _exportBlockContent(block),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   void _openBlockEditorForEdit(ContentBlock block) async {
@@ -797,22 +1670,21 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     if (!mounted) return;
     if (result != null) {
       await _repo.updateBlockContent(
-          block.id, result.content, result.mediaPaths);
-      // 仅当编辑的是首块（sortOrder 最小）时同步更新卡片摘要
-      final blocks = await _repo.watchBlocks(widget.payload.id).first;
-      if (blocks.isNotEmpty && blocks.first.id == block.id) {
-        final preview = result.content.length > 200
-            ? '${result.content.substring(0, 200)}...'
-            : result.content;
-        _repo.update(widget.payload.id, preview, widget.payload.intentTag);
-      }
+        block.id,
+        result.content,
+        result.mediaPaths,
+      );
+      await _refreshPreviewAndRequeue();
     }
   }
 
   // ==================== 块底栏（AI润色 + 标签 + 添加标签） ====================
 
   Widget _buildBlockBottomLeft(
-      ContentBlock block, ThemeData theme, bool isDark) {
+    ContentBlock block,
+    ThemeData theme,
+    bool isDark,
+  ) {
     final tags = _parseTags(block.tags);
     final isExpanded = _expandedTags.contains(block.id);
     final hasTags = tags.isNotEmpty;
@@ -828,8 +1700,10 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     }
 
     bool calcNeedsExpand(double availableWidth) {
-      final totalWidth =
-          tags.fold<double>(0, (sum, t) => sum + estimateTagWidth(t));
+      final totalWidth = tags.fold<double>(
+        0,
+        (sum, t) => sum + estimateTagWidth(t),
+      );
       return totalWidth > availableWidth;
     }
 
@@ -848,11 +1722,14 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             color: colorPair.bg,
             borderRadius: BorderRadius.circular(4),
           ),
-          child: Text(displayTag,
-              style: TextStyle(
-                  color: colorPair.fg,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 11)),
+          child: Text(
+            displayTag,
+            style: TextStyle(
+              color: colorPair.fg,
+              fontWeight: FontWeight.w600,
+              fontSize: 11,
+            ),
+          ),
         ),
       );
     }
@@ -874,16 +1751,21 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
               onTap: _isAiWorking ? null : () => _polishBlock(block),
               child: Padding(
                 padding: const EdgeInsets.only(right: 6),
-                child: Icon(Icons.auto_fix_high_rounded,
-                    size: 14,
-                    color: _isAiWorking ? Colors.grey[500] : Colors.amber),
+                child: Icon(
+                  Icons.auto_fix_high_rounded,
+                  size: 14,
+                  color: _isAiWorking ? Colors.grey[500] : Colors.amber,
+                ),
               ),
             )
           else
             Padding(
               padding: const EdgeInsets.only(right: 6),
-              child: Icon(Icons.check_circle_outline_rounded,
-                  size: 14, color: Colors.green[400]),
+              child: Icon(
+                Icons.check_circle_outline_rounded,
+                size: 14,
+                color: Colors.green[400],
+              ),
             ),
           // 标签区域
           Flexible(
@@ -897,18 +1779,20 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                       runSpacing: 2,
                       clipBehavior: Clip.antiAlias,
                       children: tags
-                          .map((tag) => buildTagChip(
-                                tag,
-                                onToggleExpand: reallyNeedsExpand
-                                    ? () => setState(() {
-                                          if (isExpanded) {
-                                            _expandedTags.remove(block.id);
-                                          } else {
-                                            _expandedTags.add(block.id);
-                                          }
-                                        })
-                                    : null,
-                              ))
+                          .map(
+                            (tag) => buildTagChip(
+                              tag,
+                              onToggleExpand: reallyNeedsExpand
+                                  ? () => setState(() {
+                                      if (isExpanded) {
+                                        _expandedTags.remove(block.id);
+                                      } else {
+                                        _expandedTags.add(block.id);
+                                      }
+                                    })
+                                  : null,
+                            ),
+                          )
                           .toList(),
                     )
                   : const SizedBox.shrink(),
@@ -939,8 +1823,9 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
           ActionChip(
             label: const Text('+', style: TextStyle(fontSize: 11)),
             onPressed: () => _showBlockTagDialog(block, tags),
-            backgroundColor:
-                isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
+            backgroundColor: isDark
+                ? const Color(0xFF262626)
+                : const Color(0xFFF1F3F5),
             side: BorderSide.none,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             visualDensity: VisualDensity.compact,
@@ -960,8 +1845,9 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
 
   void _showBlockTagDialog(ContentBlock block, List<String> currentTags) {
     final controller = TextEditingController(text: '#');
-    controller.selection =
-        TextSelection.collapsed(offset: controller.text.length);
+    controller.selection = TextSelection.collapsed(
+      offset: controller.text.length,
+    );
 
     showDialog(
       context: context,
@@ -984,17 +1870,21 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor:
-          isDark ? const Color(0xFF121212) : const Color(0xFFF6F6F6),
+      backgroundColor: isDark
+          ? const Color(0xFF121212)
+          : const Color(0xFFF6F6F6),
       appBar: AppBar(
         backgroundColor: isDark ? const Color(0xFF1A1A1A) : Colors.white,
         elevation: 0,
         scrolledUnderElevation: 0,
         toolbarHeight: 46,
         centerTitle: true,
-        title: Text(_currentTitle.isEmpty ? '未命名' : _currentTitle,
-            style: AppTypography.h3
-                .copyWith(color: theme.textTheme.bodyMedium?.color)),
+        title: Text(
+          _currentTitle.isEmpty ? '未命名' : _currentTitle,
+          style: AppTypography.h3.copyWith(
+            color: theme.textTheme.bodyMedium?.color,
+          ),
+        ),
         leading: IconButton(
           icon: const Icon(Icons.chevron_left_rounded, size: 22),
           onPressed: () => Navigator.pop(context),
@@ -1012,18 +1902,24 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
             itemBuilder: (ctx) => [
               const PopupMenuItem(
-                  value: 'edit_title',
-                  child: Text('修改标题', style: TextStyle(fontSize: 13))),
+                value: 'edit_title',
+                child: Text('修改标题', style: TextStyle(fontSize: 13)),
+              ),
               const PopupMenuItem(
-                  value: 'archive',
-                  child: Text('归档', style: TextStyle(fontSize: 13))),
+                value: 'archive',
+                child: Text('归档', style: TextStyle(fontSize: 13)),
+              ),
               const PopupMenuItem(
-                  value: 'hide',
-                  child: Text('隐藏', style: TextStyle(fontSize: 13))),
+                value: 'hide',
+                child: Text('隐藏', style: TextStyle(fontSize: 13)),
+              ),
               const PopupMenuItem(
-                  value: 'delete',
-                  child: Text('删除此条',
-                      style: TextStyle(fontSize: 13, color: Colors.redAccent))),
+                value: 'delete',
+                child: Text(
+                  '删除此条',
+                  style: TextStyle(fontSize: 13, color: Colors.redAccent),
+                ),
+              ),
             ],
             onSelected: (val) {
               if (val == 'edit_title') {
@@ -1039,7 +1935,9 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                   ),
                 );
               } else if (val == 'delete') {
-                _confirmDelete();
+                WidgetsBinding.instance.addPostFrameCallback(
+                  (_) => _confirmDelete(),
+                );
               }
             },
           ),
@@ -1049,11 +1947,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
       body: Column(
         children: [
           // 处理状态横幅
-          _buildStatusBanner(theme, isDark),
-          // 分发链接
-          if (widget.payload.dispatchedRef != null &&
-              widget.payload.dispatchedRef!.isNotEmpty)
-            _buildDispatchedLink(isDark),
+          if (_showStatusBanner) _buildStatusBanner(theme, isDark),
           Expanded(
             child: SingleChildScrollView(
               controller: _scrollController,
@@ -1072,14 +1966,18 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                           if (blocks.isNotEmpty)
                             Padding(
                               padding: const EdgeInsets.only(bottom: 8),
-                              child: Text('内容记录',
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.grey[500])),
+                              child: Text(
+                                '内容记录',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey[500],
+                                ),
+                              ),
                             ),
-                          ...blocks.map((block) =>
-                              _buildContentBlock(block, theme, isDark)),
+                          ...blocks.map(
+                            (block) => _buildContentBlock(block, theme, isDark),
+                          ),
                           const SizedBox(height: 6),
                           _buildAddBlockButton(isDark, theme),
                         ],
@@ -1087,9 +1985,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                     },
                   ),
                   const SizedBox(height: 20),
-                  _buildAiSection(theme, isDark),
-                  const SizedBox(height: 20),
-                  _buildTaskSection(theme, isDark),
+                  _buildSupplementaryArea(theme, isDark),
                 ],
               ),
             ),
@@ -1099,12 +1995,13 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
       bottomNavigationBar: StreamBuilder<List<AiTemplate>>(
         stream: _templatesStream,
         builder: (context, snapshot) {
+          final allTemplates = snapshot.data ?? [];
           return AiChatInputBox(
             textController: _aiInputController,
             focusNode: _aiInputFocus,
             isAiWorking: _isAiWorking,
             selectedModel: _selectedModel,
-            templates: snapshot.data ?? [],
+            templates: allTemplates,
             onSend: _sendAiMessage,
             onModelChanged: (model) {
               _ai.setModel(model.id);
@@ -1113,10 +2010,12 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             onAttachmentPicked: _handleAttachmentPicked,
             onTemplateManage: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                builder: (_) => const TemplateManagementPage(),
-              ),
+              MaterialPageRoute(builder: (_) => const TemplateManagementPage()),
             ),
+            onRuleTemplateSelected: (template) =>
+                _onRuleTemplateSelected(template),
+            onChatTemplateSelected: (template) =>
+                _handleChatTemplateSelected(template),
           );
         },
       ),
@@ -1146,9 +2045,11 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.add_rounded,
-                    size: 16,
-                    color: isDark ? Colors.grey[400] : Colors.grey[600]),
+                Icon(
+                  Icons.add_rounded,
+                  size: 16,
+                  color: isDark ? Colors.grey[400] : Colors.grey[600],
+                ),
                 const SizedBox(width: 6),
                 Text(
                   '追加内容',
@@ -1196,15 +2097,35 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         text = 'AI 正在分析归类...';
         color = Colors.amber;
         break;
+      case ProcessingStatus.textCleaned:
+        icon = Icons.manage_search_rounded;
+        text = '文本已清洗，等待 AI 分析...';
+        color = const Color(0xFF42A5F5);
+        break;
       case ProcessingStatus.dispatching:
         icon = Icons.call_split_rounded;
         text = '正在分发到业务表...';
         color = const Color(0xFF66BB6A);
         break;
+      case ProcessingStatus.pendingReview:
+        icon = Icons.inbox_rounded;
+        text = '已进入收件箱，等待你确认分发...';
+        color = const Color(0xFF7E57C2);
+        break;
       case ProcessingStatus.failedRetry:
         icon = Icons.hourglass_empty_rounded;
         text = '处理暂停，等待网络恢复...';
         color = const Color(0xFFFFA726);
+        break;
+      case ProcessingStatus.offlineSaved:
+        icon = Icons.cloud_off_rounded;
+        text = '离线已保存，等待网络恢复...';
+        color = const Color(0xFFFFA726);
+        break;
+      case ProcessingStatus.decayed:
+        icon = Icons.auto_delete_rounded;
+        text = '内容已衰减折叠';
+        color = const Color(0xFF90A4AE);
         break;
       default:
         return const SizedBox.shrink();
@@ -1216,19 +2137,9 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
       color: color.withValues(alpha: isDark ? 0.15 : 0.08),
       child: Row(
         children: [
-          SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(color),
-            ),
-          ),
+          Icon(icon, size: 14, color: color),
           const SizedBox(width: 8),
-          Text(
-            text,
-            style: TextStyle(fontSize: 12, color: color),
-          ),
+          Text(text, style: TextStyle(fontSize: 12, color: color)),
         ],
       ),
     );
@@ -1280,81 +2191,196 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: InkWell(
-        onTap: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('$label ($table #$id) — 详情页开发中'),
-              duration: const Duration(seconds: 2),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-        },
-        child: Row(
-          children: [
-            Icon(Icons.link_rounded, size: 14, color: Colors.blue[400]),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.blue[400],
-                decoration: TextDecoration.underline,
+      child: Row(
+        children: [
+          Expanded(
+            child: InkWell(
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('$label ($table #$id) — 详情页开发中'),
+                    duration: const Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              },
+              child: Row(
+                children: [
+                  Icon(Icons.link_rounded, size: 14, color: Colors.blue[400]),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.blue[400],
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                  const Spacer(),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    size: 16,
+                    color: Colors.grey[500],
+                  ),
+                ],
               ),
             ),
-            const Spacer(),
-            Icon(Icons.chevron_right_rounded,
-                size: 16, color: Colors.grey[500]),
-          ],
-        ),
+          ),
+          const SizedBox(width: 4),
+          GestureDetector(
+            onTap: () async {
+              await _repo.clearDispatchedRef(widget.payload.id);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('已撤销分发'),
+                    duration: Duration(seconds: 1),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: Icon(
+                Icons.undo_rounded,
+                size: 16,
+                color: Colors.grey[500],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  // ==================== AI 对话区域 ====================
+  /// 收件箱卡片内的已分发链接行（仅显示链接信息，不含撤销按钮）
+  Widget _buildInboxDispatchedLinkRow(String dispatchedRef) {
+    final parts = dispatchedRef.split(':');
+    if (parts.length != 2) return const SizedBox.shrink();
 
-  Widget _buildAiSection(ThemeData theme, bool isDark) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // 区域标题
-        Row(
-          children: [
-            const Icon(Icons.auto_awesome_rounded,
-                color: Colors.amber, size: 14),
-            const SizedBox(width: 6),
-            Text('AI 交流',
-                style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey[500])),
-          ],
-        ),
-        const SizedBox(height: 10),
+    final table = parts[0];
+    String label;
+    switch (table) {
+      case 'crm_customers':
+        label = '查看关联客户';
+        break;
+      case 'ledger_entries':
+        label = '查看记账流水';
+        break;
+      case 'todo_schedules':
+        label = '查看待办日程';
+        break;
+      default:
+        label = '查看关联记录';
+    }
 
-        // 对话列表
-        StreamBuilder<List<AiConversation>>(
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.blue.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.link_rounded, size: 14, color: Colors.blue[400]),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.blue[400],
+              decoration: TextDecoration.underline,
+            ),
+          ),
+          const Spacer(),
+          Icon(Icons.chevron_right_rounded, size: 16, color: Colors.grey[500]),
+        ],
+      ),
+    );
+  }
+
+  // ==================== 补充区域（AI 交流 + 收件箱） ====================
+
+  Widget _buildSupplementaryArea(ThemeData theme, bool isDark) {
+    return StreamBuilder<List<DispatchInboxData>>(
+      stream: _watchPendingInboxList(),
+      builder: (context, inboxSnapshot) {
+        final inboxItems = inboxSnapshot.data ?? [];
+
+        return StreamBuilder<List<AiConversation>>(
           stream: _conversationsStream,
-          builder: (context, snapshot) {
-            final conversations = snapshot.data ?? [];
+          builder: (context, convSnapshot) {
+            final conversations = convSnapshot.data ?? [];
+            final hasConversations = conversations.isNotEmpty;
+
+            // 合并收件箱和对话并按 createdAt 升序排列
+            final merged = <Object>[...inboxItems, ...conversations];
+            merged.sort((a, b) {
+              final aTime = a is DispatchInboxData
+                  ? a.createdAt
+                  : (a as AiConversation).createdAt;
+              final bTime = b is DispatchInboxData
+                  ? b.createdAt
+                  : (b as AiConversation).createdAt;
+              return aTime.compareTo(bTime);
+            });
 
             return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // 空状态 + 模板网格
+                // "AI 交流" 标题行：仅在有对话时显示
+                if (hasConversations) ...[
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.auto_awesome_rounded,
+                        color: Colors.amber,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'AI 交流',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.grey[500],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                ],
+
+                // 对话为空时显示空状态提示 + 模板网格
                 if (conversations.isEmpty) ...[
                   Padding(
                     padding: const EdgeInsets.only(bottom: 10),
-                    child: Text('所有内容块已作为上下文提供给 AI，开始提问吧',
-                        style:
-                            TextStyle(fontSize: 12, color: Colors.grey[600])),
+                    child: Text(
+                      '所有内容块已作为上下文提供给 AI，开始提问吧',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
                   ),
-                  _buildTemplateGrid(isDark),
+                  if (!_hasActiveInbox) _buildTemplateGrid(isDark),
                 ],
 
-                // 对话列表
-                ...conversations.map(
-                    (conv) => _buildConversationBubble(conv, theme, isDark)),
+                // 合并列表
+                ...merged.map((item) {
+                  if (item is DispatchInboxData) {
+                    return _buildDispatchInboxCard(
+                      theme,
+                      isDark,
+                      item,
+                      dispatchedRef: widget.payload.dispatchedRef,
+                    );
+                  } else {
+                    return _buildConversationBubble(
+                      item as AiConversation,
+                      theme,
+                      isDark,
+                    );
+                  }
+                }),
 
                 // 加载指示器
                 if (_isAiWorking)
@@ -1366,15 +2392,21 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                           padding: const EdgeInsets.only(right: 8),
                           child: CircleAvatar(
                             radius: 14,
-                            backgroundColor:
-                                const Color(0xFFFF6B6B).withValues(alpha: 0.15),
-                            child: const Icon(Icons.auto_awesome_rounded,
-                                size: 14, color: Color(0xFFFF6B6B)),
+                            backgroundColor: const Color(
+                              0xFFFF6B6B,
+                            ).withValues(alpha: 0.15),
+                            child: const Icon(
+                              Icons.auto_awesome_rounded,
+                              size: 14,
+                              color: Color(0xFFFF6B6B),
+                            ),
                           ),
                         ),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 10),
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
                           decoration: BoxDecoration(
                             color: isDark
                                 ? const Color(0xFF2A2A2A)
@@ -1394,14 +2426,143 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                                 height: 14,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  color: const Color(0xFFFF6B6B)
-                                      .withValues(alpha: 0.6),
+                                  color: const Color(
+                                    0xFFFF6B6B,
+                                  ).withValues(alpha: 0.6),
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              Text('思考中...',
-                                  style: TextStyle(
-                                      fontSize: 12, color: Colors.grey[500])),
+                              Text(
+                                '思考中...',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[500],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ==================== AI 对话区域 ====================
+
+  Widget _buildAiSection(ThemeData theme, bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 区域标题
+        Row(
+          children: [
+            const Icon(
+              Icons.auto_awesome_rounded,
+              color: Colors.amber,
+              size: 14,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              'AI 交流',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[500],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+
+        // 对话列表
+        StreamBuilder<List<AiConversation>>(
+          stream: _conversationsStream,
+          builder: (context, snapshot) {
+            final conversations = snapshot.data ?? [];
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 空状态 + 模板网格
+                if (conversations.isEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Text(
+                      '所有内容块已作为上下文提供给 AI，开始提问吧',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ),
+                  if (!_hasActiveInbox) _buildTemplateGrid(isDark),
+                ],
+
+                // 对话列表（inbox + conversations 合并区）
+                ...conversations.map(
+                  (conv) => _buildConversationBubble(conv, theme, isDark),
+                ),
+
+                // 加载指示器
+                if (_isAiWorking)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Row(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: CircleAvatar(
+                            radius: 14,
+                            backgroundColor: const Color(
+                              0xFFFF6B6B,
+                            ).withValues(alpha: 0.15),
+                            child: const Icon(
+                              Icons.auto_awesome_rounded,
+                              size: 14,
+                              color: Color(0xFFFF6B6B),
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? const Color(0xFF2A2A2A)
+                                : const Color(0xFFF0F0F0),
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(16),
+                              topRight: Radius.circular(16),
+                              bottomRight: Radius.circular(16),
+                              bottomLeft: Radius.circular(4),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: const Color(
+                                    0xFFFF6B6B,
+                                  ).withValues(alpha: 0.6),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '思考中...',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[500],
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -1417,15 +2578,19 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   }
 
   Widget _buildConversationBubble(
-      AiConversation conv, ThemeData theme, bool isDark) {
+    AiConversation conv,
+    ThemeData theme,
+    bool isDark,
+  ) {
     final isUser = conv.role == 'user';
     const bubbleMaxWidth = 0.75;
 
     final bubbleRow = Padding(
       padding: const EdgeInsets.only(top: 6, bottom: 6),
       child: Row(
-        mainAxisAlignment:
-            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: isUser
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!isUser)
@@ -1433,23 +2598,28 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
               padding: const EdgeInsets.only(right: 8),
               child: CircleAvatar(
                 radius: 14,
-                backgroundColor:
-                    const Color(0xFFFF6B6B).withValues(alpha: 0.15),
-                child: const Icon(Icons.auto_awesome_rounded,
-                    size: 14, color: Color(0xFFFF6B6B)),
+                backgroundColor: const Color(
+                  0xFFFF6B6B,
+                ).withValues(alpha: 0.15),
+                child: const Icon(
+                  Icons.auto_awesome_rounded,
+                  size: 14,
+                  color: Color(0xFFFF6B6B),
+                ),
               ),
             ),
           Flexible(
             child: Container(
               constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * bubbleMaxWidth),
+                maxWidth: MediaQuery.of(context).size.width * bubbleMaxWidth,
+              ),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               decoration: BoxDecoration(
                 color: isUser
                     ? const Color(0xFFFF6B6B)
                     : isDark
-                        ? const Color(0xFF2A2A2A)
-                        : const Color(0xFFF0F0F0),
+                    ? const Color(0xFF2A2A2A)
+                    : const Color(0xFFF0F0F0),
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(16),
                   topRight: const Radius.circular(16),
@@ -1465,15 +2635,19 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                   ? Text(
                       conv.content,
                       style: const TextStyle(
-                          fontSize: 13, height: 1.5, color: Colors.white),
+                        fontSize: 13,
+                        height: 1.5,
+                        color: Colors.white,
+                      ),
                     )
                   : SelectableText(
                       conv.content,
                       style: TextStyle(
                         fontSize: 13,
                         height: 1.5,
-                        color:
-                            isDark ? Colors.grey[200] : const Color(0xFF333333),
+                        color: isDark
+                            ? Colors.grey[200]
+                            : const Color(0xFF333333),
                       ),
                     ),
             ),
@@ -1483,13 +2657,17 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
               padding: const EdgeInsets.only(left: 8),
               child: CircleAvatar(
                 radius: 14,
-                backgroundColor:
-                    const Color(0xFFFF6B6B).withValues(alpha: 0.15),
-                child: const Text('我',
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFFFF6B6B),
-                        fontWeight: FontWeight.w600)),
+                backgroundColor: const Color(
+                  0xFFFF6B6B,
+                ).withValues(alpha: 0.15),
+                child: const Text(
+                  '我',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Color(0xFFFF6B6B),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
         ],
@@ -1507,14 +2685,17 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             child: Row(
               children: [
                 _BlockIconButton(
-                    icon: Icons.copy_outlined,
-                    onTap: () => _copyText(conv.content)),
+                  icon: Icons.copy_outlined,
+                  onTap: () => _copyText(conv.content),
+                ),
                 _BlockIconButton(
-                    icon: Icons.ios_share_rounded,
-                    onTap: () => _exportAiContent(conv.content)),
+                  icon: Icons.ios_share_rounded,
+                  onTap: () => _exportAiContent(conv.content),
+                ),
                 _BlockIconButton(
-                    icon: Icons.more_horiz_rounded,
-                    onTap: () => _showAiMoreMenu(conv)),
+                  icon: Icons.more_horiz_rounded,
+                  onTap: () => _showAiMoreMenu(conv),
+                ),
               ],
             ),
           ),
@@ -1546,8 +2727,10 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
               return GestureDetector(
                 onTap: () => _sendPromptToAi(t.prompt),
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
                     color: isDark
                         ? const Color(0xFF2A2A2A)
@@ -1565,153 +2748,19 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                     children: [
                       Text(t.icon, style: const TextStyle(fontSize: 16)),
                       const SizedBox(width: 6),
-                      Text(t.name,
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: isDark
-                                  ? Colors.grey[300]
-                                  : Colors.grey[700])),
+                      Text(
+                        t.name,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? Colors.grey[300] : Colors.grey[700],
+                        ),
+                      ),
                     ],
                   ),
                 ),
               );
             }).toList(),
           ),
-        );
-      },
-    );
-  }
-
-  // ==================== 任务清单 ====================
-
-  Widget _buildTaskSection(ThemeData theme, bool isDark) {
-    return StreamBuilder<List<IdeaTask>>(
-      stream: _tasksStream,
-      builder: (context, snapshot) {
-        final tasks = snapshot.data ?? [];
-        final doneCount = tasks.where((t) => t.isDone).length;
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.checklist_rounded,
-                        size: 14, color: Color(0xFFFF6B6B)),
-                    const SizedBox(width: 6),
-                    Text('转化执行清单 ($doneCount/${tasks.length})',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey[400])),
-                  ],
-                ),
-                if (tasks.isNotEmpty)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: SizedBox(
-                      width: 60,
-                      height: 3,
-                      child: LinearProgressIndicator(
-                        value: tasks.isEmpty ? 0 : doneCount / tasks.length,
-                        backgroundColor: isDark
-                            ? const Color(0xFF333333)
-                            : const Color(0xFFE0E0E0),
-                        color: const Color(0xFFFF6B6B),
-                      ),
-                    ),
-                  ),
-                if (!_isEnteringTask)
-                  IconButton(
-                    icon: const Icon(Icons.add_circle_outline_rounded,
-                        size: 16, color: Color(0xFFFF6B6B)),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    onPressed: () => setState(() => _isEnteringTask = true),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            if (_isEnteringTask)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _newTaskController,
-                        autofocus: true,
-                        style: const TextStyle(fontSize: 13),
-                        decoration: const InputDecoration(
-                          hintText: '输入需要派生执行的步骤...',
-                          border: UnderlineInputBorder(),
-                          isDense: true,
-                        ),
-                        onSubmitted: (val) {
-                          if (val.trim().isNotEmpty) {
-                            _repo.addTask(
-                                widget.payload.id, val.trim(), tasks.length);
-                            _newTaskController.clear();
-                            setState(() => _isEnteringTask = false);
-                          }
-                        },
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close_rounded, size: 16),
-                      onPressed: () => setState(() => _isEnteringTask = false),
-                    ),
-                  ],
-                ),
-              ),
-            if (tasks.isEmpty && !_isEnteringTask)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text('暂无任务，点击 + 或使用 AI 派生',
-                    style: TextStyle(color: Colors.grey[600], fontSize: 12)),
-              ),
-            ...tasks.map((task) => Padding(
-                  padding: const EdgeInsets.only(bottom: 2),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: Checkbox(
-                          value: task.isDone,
-                          activeColor: const Color(0xFFFF6B6B),
-                          checkColor: Colors.white,
-                          side: BorderSide(color: Colors.grey[500]!, width: 1),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(4)),
-                          onChanged: (val) =>
-                              _repo.toggleTask(task.id, val ?? false),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          task.content,
-                          style: TextStyle(
-                            fontSize: 13,
-                            decoration:
-                                task.isDone ? TextDecoration.lineThrough : null,
-                            color: task.isDone ? theme.hintColor : null,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.delete_outline_rounded,
-                            size: 14, color: Colors.grey[600]),
-                        onPressed: () => _repo.removeTask(task.id),
-                      ),
-                    ],
-                  ),
-                )),
-          ],
         );
       },
     );
@@ -1751,125 +2800,164 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
       final line = lines[i];
 
       if (line.trimRight() == '---' || line.trimRight() == '***') {
-        spans.add(Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Divider(
-              color: isDark ? Colors.grey[800] : Colors.grey[300], height: 1),
-        ));
+        spans.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Divider(
+              color: isDark ? Colors.grey[800] : Colors.grey[300],
+              height: 1,
+            ),
+          ),
+        );
         continue;
       }
 
       if (line.startsWith('# ')) {
-        spans.add(Padding(
-          padding: const EdgeInsets.only(top: 10, bottom: 3),
-          child: Text(line.substring(2),
+        spans.add(
+          Padding(
+            padding: const EdgeInsets.only(top: 10, bottom: 3),
+            child: Text(
+              line.substring(2),
               style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  height: 1.3,
-                  color: isDark ? Colors.white : Colors.black)),
-        ));
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                height: 1.3,
+                color: isDark ? Colors.white : Colors.black,
+              ),
+            ),
+          ),
+        );
         continue;
       }
       if (line.startsWith('## ')) {
-        spans.add(Padding(
-          padding: const EdgeInsets.only(top: 8, bottom: 2),
-          child: Text(line.substring(3),
+        spans.add(
+          Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 2),
+            child: Text(
+              line.substring(3),
               style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  height: 1.3,
-                  color: isDark ? Colors.white : Colors.black)),
-        ));
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                height: 1.3,
+                color: isDark ? Colors.white : Colors.black,
+              ),
+            ),
+          ),
+        );
         continue;
       }
       if (line.startsWith('### ')) {
-        spans.add(Padding(
-          padding: const EdgeInsets.only(top: 7, bottom: 2),
-          child: Text(line.substring(4),
+        spans.add(
+          Padding(
+            padding: const EdgeInsets.only(top: 7, bottom: 2),
+            child: Text(
+              line.substring(4),
               style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  height: 1.3,
-                  color: isDark ? Colors.white : const Color(0xFF333333))),
-        ));
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                height: 1.3,
+                color: isDark ? Colors.white : const Color(0xFF333333),
+              ),
+            ),
+          ),
+        );
         continue;
       }
 
       if (line.startsWith('> ')) {
-        spans.add(Container(
-          margin: const EdgeInsets.only(top: 4, bottom: 4),
-          padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
-          decoration: BoxDecoration(
-            border: Border(
-              left: BorderSide(
+        spans.add(
+          Container(
+            margin: const EdgeInsets.only(top: 4, bottom: 4),
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+            decoration: BoxDecoration(
+              border: Border(
+                left: BorderSide(
                   color: const Color(0xFFFF6B6B).withValues(alpha: 0.4),
-                  width: 3),
+                  width: 3,
+                ),
+              ),
             ),
-          ),
-          child: _parseInlineMD(
+            child: _parseInlineMD(
               line.substring(2),
               TextStyle(
-                  fontSize: 13,
-                  height: 1.5,
-                  color: isDark ? Colors.grey[400] : Colors.grey[700],
-                  fontStyle: FontStyle.italic),
-              isDark),
-        ));
+                fontSize: 13,
+                height: 1.5,
+                color: isDark ? Colors.grey[400] : Colors.grey[700],
+                fontStyle: FontStyle.italic,
+              ),
+              isDark,
+            ),
+          ),
+        );
         continue;
       }
 
       if (line.trimLeft().startsWith('- ')) {
         final indent = line.length - line.trimLeft().length;
         final content = line.trimLeft().substring(2);
-        spans.add(Padding(
-          padding: EdgeInsets.only(left: indent + 14.0, top: 1, bottom: 1),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('• ',
-                  style: TextStyle(fontSize: 13, color: Color(0xFFFF6B6B))),
-              Expanded(
+        spans.add(
+          Padding(
+            padding: EdgeInsets.only(left: indent + 14.0, top: 1, bottom: 1),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '• ',
+                  style: TextStyle(fontSize: 13, color: Color(0xFFFF6B6B)),
+                ),
+                Expanded(
                   child: _parseInlineMD(
-                      content,
-                      TextStyle(
-                          fontSize: 13,
-                          height: 1.5,
-                          color: isDark
-                              ? Colors.grey[300]
-                              : const Color(0xFF444444)),
-                      isDark)),
-            ],
+                    content,
+                    TextStyle(
+                      fontSize: 13,
+                      height: 1.5,
+                      color: isDark
+                          ? Colors.grey[300]
+                          : const Color(0xFF444444),
+                    ),
+                    isDark,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ));
+        );
         continue;
       }
 
       final olMatch = RegExp(r'^\d+\.\s').firstMatch(line);
       if (olMatch != null) {
         final content = line.substring(olMatch.end);
-        spans.add(Padding(
-          padding: const EdgeInsets.only(left: 14, top: 1, bottom: 1),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('${line.substring(0, olMatch.end - 2)}. ',
+        spans.add(
+          Padding(
+            padding: const EdgeInsets.only(left: 14, top: 1, bottom: 1),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${line.substring(0, olMatch.end - 2)}. ',
                   style: TextStyle(
-                      fontSize: 13,
-                      color: const Color(0xFFFF6B6B).withValues(alpha: 0.7))),
-              Expanded(
+                    fontSize: 13,
+                    color: const Color(0xFFFF6B6B).withValues(alpha: 0.7),
+                  ),
+                ),
+                Expanded(
                   child: _parseInlineMD(
-                      content,
-                      TextStyle(
-                          fontSize: 13,
-                          height: 1.5,
-                          color: isDark
-                              ? Colors.grey[300]
-                              : const Color(0xFF444444)),
-                      isDark)),
-            ],
+                    content,
+                    TextStyle(
+                      fontSize: 13,
+                      height: 1.5,
+                      color: isDark
+                          ? Colors.grey[300]
+                          : const Color(0xFF444444),
+                    ),
+                    isDark,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ));
+        );
         continue;
       }
 
@@ -1878,25 +2966,33 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         continue;
       }
 
-      spans.add(Padding(
-        padding: const EdgeInsets.only(top: 3, bottom: 3),
-        child: _parseInlineMD(
+      spans.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 3, bottom: 3),
+          child: _parseInlineMD(
             line,
             TextStyle(
-                fontSize: 13,
-                height: 1.6,
-                color: isDark ? Colors.grey[200] : const Color(0xFF333333)),
-            isDark),
-      ));
+              fontSize: 13,
+              height: 1.6,
+              color: isDark ? Colors.grey[200] : const Color(0xFF333333),
+            ),
+            isDark,
+          ),
+        ),
+      );
     }
 
     if (spans.isEmpty) {
-      return Text('暂无内容',
-          style: TextStyle(fontSize: 13, color: Colors.grey[500]));
+      return Text(
+        '暂无内容',
+        style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+      );
     }
 
     return Column(
-        crossAxisAlignment: CrossAxisAlignment.start, children: spans);
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: spans,
+    );
   }
 
   /// 解析行内 Markdown：**粗体**、_斜体_、`代码`
@@ -1907,29 +3003,42 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
 
     for (final match in regex.allMatches(text)) {
       if (match.start > lastEnd) {
-        segments.add(TextSpan(
-            text: text.substring(lastEnd, match.start), style: baseStyle));
+        segments.add(
+          TextSpan(
+            text: text.substring(lastEnd, match.start),
+            style: baseStyle,
+          ),
+        );
       }
 
       if (match.group(2) != null) {
-        segments.add(TextSpan(
+        segments.add(
+          TextSpan(
             text: match.group(2),
-            style: baseStyle.copyWith(fontWeight: FontWeight.bold)));
-      } else if (match.group(3) != null) {
-        segments.add(TextSpan(
-            text: match.group(3),
-            style: baseStyle.copyWith(fontStyle: FontStyle.italic)));
-      } else if (match.group(4) != null) {
-        segments.add(TextSpan(
-          text: match.group(4),
-          style: baseStyle.copyWith(
-            fontFamily: 'monospace',
-            fontSize: (baseStyle.fontSize ?? 13) - 1,
-            backgroundColor:
-                isDark ? const Color(0xFF2A2A2A) : const Color(0xFFF0F0F0),
-            color: const Color(0xFFFF6B6B),
+            style: baseStyle.copyWith(fontWeight: FontWeight.bold),
           ),
-        ));
+        );
+      } else if (match.group(3) != null) {
+        segments.add(
+          TextSpan(
+            text: match.group(3),
+            style: baseStyle.copyWith(fontStyle: FontStyle.italic),
+          ),
+        );
+      } else if (match.group(4) != null) {
+        segments.add(
+          TextSpan(
+            text: match.group(4),
+            style: baseStyle.copyWith(
+              fontFamily: 'monospace',
+              fontSize: (baseStyle.fontSize ?? 13) - 1,
+              backgroundColor: isDark
+                  ? const Color(0xFF2A2A2A)
+                  : const Color(0xFFF0F0F0),
+              color: const Color(0xFFFF6B6B),
+            ),
+          ),
+        );
       }
 
       lastEnd = match.end;
@@ -2084,8 +3193,9 @@ class _TagDialogState extends State<_TagDialog> {
               decoration: InputDecoration(
                 hintText: '用 # 分隔可一次添加多个',
                 filled: true,
-                fillColor:
-                    isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
+                fillColor: isDark
+                    ? const Color(0xFF262626)
+                    : const Color(0xFFF1F3F5),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide.none,
@@ -2096,8 +3206,10 @@ class _TagDialogState extends State<_TagDialog> {
             // 已使用标签区域
             if (hasActive) ...[
               const SizedBox(height: 12),
-              Text('已使用标签',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              Text(
+                '已使用标签',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
               const SizedBox(height: 4),
               Wrap(
                 spacing: 6,
@@ -2110,17 +3222,20 @@ class _TagDialogState extends State<_TagDialog> {
                     onTap: () => _toggleActiveTag(tag),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: isColored
                             ? colorPair.bg
                             : (isDark
-                                ? const Color(0xFF3A3A3A)
-                                : const Color(0xFFE0E0E0)),
+                                  ? const Color(0xFF3A3A3A)
+                                  : const Color(0xFFE0E0E0)),
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(
-                          color:
-                              isColored ? colorPair.bg : Colors.grey.shade400,
+                          color: isColored
+                              ? colorPair.bg
+                              : Colors.grey.shade400,
                           width: 0.5,
                         ),
                       ),
@@ -2140,8 +3255,10 @@ class _TagDialogState extends State<_TagDialog> {
             // 历史标签区域（未使用的）
             if (_loaded && historyTags.isNotEmpty) ...[
               const SizedBox(height: 12),
-              Text('历史标签',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              Text(
+                '历史标签',
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
               const SizedBox(height: 4),
               Wrap(
                 spacing: 6,
@@ -2153,7 +3270,9 @@ class _TagDialogState extends State<_TagDialog> {
                     onTap: () => _addFromHistory(tag),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: colorPair.bg,
                         borderRadius: BorderRadius.circular(6),
@@ -2176,19 +3295,24 @@ class _TagDialogState extends State<_TagDialog> {
             if (_loaded && _allTags.isEmpty && !hasActive)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
-                child: Text('暂无历史标签',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                child: Text(
+                  '暂无历史标签',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+                ),
               ),
           ],
         ),
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
         FilledButton(
           onPressed: _confirmSave,
-          style:
-              FilledButton.styleFrom(backgroundColor: const Color(0xFFFF6B6B)),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFFFF6B6B),
+          ),
           child: const Text('确定', style: TextStyle(color: Colors.white)),
         ),
       ],
@@ -2223,14 +3347,442 @@ class _BlockIconButton extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon,
-                size: 14, color: effectiveOnTap == null ? Colors.grey[700] : c),
+            Icon(
+              icon,
+              size: 14,
+              color: effectiveOnTap == null ? Colors.grey[700] : c,
+            ),
             if (!isSmallScreen && label != null) ...[
               const SizedBox(width: 2),
               Text(label!, style: TextStyle(fontSize: 10, color: c)),
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 收件箱可编辑字段列表组件
+class _InboxFieldList extends StatelessWidget {
+  final Map<String, dynamic> entities;
+  final String intentTag;
+  final bool isConfirmed;
+  final void Function(String key, String value) onFieldEdited;
+  final Type fieldLabels; // FieldLabels type
+  final Widget? trailingActions;
+
+  const _InboxFieldList({
+    required this.entities,
+    required this.intentTag,
+    required this.isConfirmed,
+    required this.onFieldEdited,
+    required this.fieldLabels,
+    this.trailingActions,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // 渲染意图对应的全部已知字段（含空值字段）
+    final allKeys = FieldLabels.fieldKeys(intentTag);
+    if (allKeys.isEmpty) {
+      // 兜底：无已知字段时回退到只渲染已有字段
+      final displayable = entities.entries
+          .where((e) => e.value != null && e.value.toString().isNotEmpty)
+          .toList();
+      if (displayable.isEmpty) return const SizedBox.shrink();
+      return _buildFieldWrap(displayable, theme, entities);
+    }
+
+    // 构建完整字段列表（包含空值）
+    final entries = <MapEntry<String, dynamic>>[];
+    for (final key in allKeys) {
+      final value = entities[key];
+      entries.add(MapEntry(key, value));
+    }
+
+    return _buildFieldWrap(entries, theme, entities);
+  }
+
+  Widget _buildFieldWrap(
+    List<MapEntry<String, dynamic>> entries,
+    ThemeData theme,
+    Map<String, dynamic> entities,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 600;
+
+        if (!isMobile) {
+          return _buildPcLayout(entries, theme, entities, trailingActions);
+        } else {
+          return _buildMobileLayout(
+            context,
+            entries,
+            theme,
+            entities,
+            trailingActions,
+          );
+        }
+      },
+    );
+  }
+
+  Widget _buildPcLayout(
+    List<MapEntry<String, dynamic>> entries,
+    ThemeData theme,
+    Map<String, dynamic> entities,
+    Widget? trailingActions,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: entries.map((e) {
+              final label = FieldLabels.label(intentTag, e.key);
+              final hasValue = e.value != null && e.value.toString().isNotEmpty;
+              final value = hasValue ? e.value.toString() : '未识别';
+              return _InboxFieldChip(
+                label: label,
+                keyName: e.key,
+                value: value,
+                isEmpty: !hasValue,
+                isConfirmed: isConfirmed,
+                onEdit: (newValue) => onFieldEdited(e.key, newValue),
+                isMobile: false,
+              );
+            }).toList(),
+          ),
+          if (trailingActions != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: trailingActions,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMobileLayout(
+    BuildContext context,
+    List<MapEntry<String, dynamic>> entries,
+    ThemeData theme,
+    Map<String, dynamic> entities,
+    Widget? trailingActions,
+  ) {
+    const maxVisible = 4;
+    final displayEntries = entries.take(maxVisible).toList();
+    final hasMore = entries.length > maxVisible;
+
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ...displayEntries.map((e) {
+            final label = FieldLabels.label(intentTag, e.key);
+            final hasValue = e.value != null && e.value.toString().isNotEmpty;
+            final value = hasValue ? e.value.toString() : '未识别';
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: _InboxFieldChip(
+                label: label,
+                keyName: e.key,
+                value: value,
+                isEmpty: !hasValue,
+                isConfirmed: isConfirmed,
+                onEdit: (newValue) => onFieldEdited(e.key, newValue),
+                isMobile: true,
+              ),
+            );
+          }),
+          if (hasMore || trailingActions != null)
+            Container(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(
+                children: [
+                  if (hasMore)
+                    InkWell(
+                      onTap: () {
+                        _showAllFieldsSheet(context, entries, theme, entities);
+                      },
+                      borderRadius: BorderRadius.circular(6),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Text(
+                          '查看全部 (${entries.length})',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
+                  const Spacer(),
+                  if (trailingActions != null) trailingActions!,
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showAllFieldsSheet(
+    BuildContext context,
+    List<MapEntry<String, dynamic>> entries,
+    ThemeData theme,
+    Map<String, dynamic> entities,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        maxChildSize: 0.9,
+        minChildSize: 0.3,
+        expand: false,
+        builder: (ctx, scrollController) => SingleChildScrollView(
+          controller: scrollController,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  width: 32,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '全部字段',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 12),
+              ...entries.map((e) {
+                final label = FieldLabels.label(intentTag, e.key);
+                final hasValue =
+                    e.value != null && e.value.toString().isNotEmpty;
+                final value = hasValue ? e.value.toString() : '未识别';
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: _InboxFieldChip(
+                    label: label,
+                    keyName: e.key,
+                    value: value,
+                    isEmpty: !hasValue,
+                    isConfirmed: isConfirmed,
+                    onEdit: (newValue) => onFieldEdited(e.key, newValue),
+                    isMobile: true,
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 单个收件箱字段 Chip，点击可编辑
+class _InboxFieldChip extends StatelessWidget {
+  final String label;
+  final String keyName;
+  final String value;
+  final bool isEmpty;
+  final bool isConfirmed;
+  final bool isMobile;
+  final void Function(String newValue) onEdit;
+
+  const _InboxFieldChip({
+    required this.label,
+    required this.keyName,
+    required this.value,
+    required this.isEmpty,
+    required this.isConfirmed,
+    required this.onEdit,
+    this.isMobile = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (isMobile) {
+      return InkWell(
+        onTap: () => _showEditDialog(context),
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: theme.dividerColor.withValues(alpha: 0.15),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                isEmpty
+                    ? '未识别'
+                    : (value.length > 50
+                          ? '${value.substring(0, 50)}...'
+                          : value),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontStyle: isEmpty ? FontStyle.italic : null,
+                  color: isEmpty ? Colors.grey : theme.colorScheme.onSurface,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return InkWell(
+      onTap: () => _showEditDialog(context),
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: theme.dividerColor.withValues(alpha: 0.15)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '$label: ',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              ),
+            ),
+            Text(
+              isEmpty
+                  ? '未识别'
+                  : (value.length > 30
+                        ? '${value.substring(0, 30)}...'
+                        : value),
+              style: TextStyle(
+                fontSize: 12,
+                fontStyle: isEmpty ? FontStyle.italic : null,
+                color: isEmpty ? Colors.grey : theme.colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.edit_outlined,
+              size: 12,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showEditDialog(BuildContext context) {
+    final controller = TextEditingController(text: isEmpty ? '' : value);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('编辑 $label'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: isEmpty ? '补全$label...' : '修改$label',
+            filled: true,
+            fillColor: isDark
+                ? const Color(0xFF262626)
+                : const Color(0xFFF1F3F5),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+          onSubmitted: (val) {
+            onEdit(val.trim());
+            Navigator.pop(ctx);
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          if (isEmpty)
+            FilledButton(
+              onPressed: () {
+                onEdit(controller.text.trim());
+                Navigator.pop(ctx);
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6B6B),
+              ),
+              child: const Text('补全', style: TextStyle(color: Colors.white)),
+            )
+          else
+            FilledButton(
+              onPressed: () {
+                onEdit(controller.text.trim());
+                Navigator.pop(ctx);
+              },
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6B6B),
+              ),
+              child: const Text('确定', style: TextStyle(color: Colors.white)),
+            ),
+        ],
       ),
     );
   }

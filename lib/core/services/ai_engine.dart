@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
+import 'secure_storage_service.dart';
+import 'settings_service.dart';
+import '../utils/data_anonymizer.dart';
 
 /// 模型信息结构
 class ModelInfo {
@@ -16,14 +19,16 @@ class ModelInfo {
 }
 
 /// AI 通用引擎 —— 封装 LLM 调用，支持流式 / 非流式 / Function Calling 三种模式
-/// 当前适配 DeepSeek API（兼容 OpenAI 格式）
+/// 兼容 OpenAI 格式，支持 DeepSeek、Ollama 等后端
 class AiEngine {
-  final String _apiKey;
+  String _apiKey;
   String _baseUrl;
   String _model;
+  final SecureStorageService? _secureStorage;
+  final SettingsService? _settings;
 
-  /// 可用模型列表
-  static const List<ModelInfo> availableModels = [
+  /// 可用模型列表（云端）
+  static const List<ModelInfo> availableCloudModels = [
     ModelInfo(id: 'deepseek-chat', name: 'DeepSeek Chat', provider: 'DeepSeek'),
     ModelInfo(
         id: 'deepseek-reasoner', name: 'DeepSeek R1', provider: 'DeepSeek'),
@@ -35,12 +40,45 @@ class AiEngine {
         provider: 'Anthropic'),
   ];
 
-  AiEngine()
-      : _apiKey = dotenv.env['LLM_API_KEY'] ?? '',
+  /// Ollama 默认本地模型
+  static const ModelInfo defaultOllamaModel = ModelInfo(
+    id: 'llama3:8b',
+    name: 'Llama 3 (8B)',
+    provider: 'Ollama',
+  );
+
+  AiEngine({
+    SecureStorageService? secureStorage,
+    SettingsService? settings,
+  })  : _secureStorage = secureStorage,
+        _settings = settings,
+        _apiKey = dotenv.env['LLM_API_KEY'] ?? '',
         _baseUrl = dotenv.env['LLM_BASE_URL'] ?? 'https://api.deepseek.com/v1',
         _model = dotenv.env['LLM_MODEL_NAME'] ?? 'deepseek-chat';
 
   bool get isConfigured => _apiKey.isNotEmpty;
+
+  String get apiKey => _apiKey;
+
+  /// 异步初始化：优先从 SecureStorage 加载配置，不存在则 fallback 到 .env
+  Future<void> init() async {
+    if (_secureStorage == null) return;
+
+    final storedKey = await _secureStorage!.getApiKey();
+    if (storedKey != null && storedKey.isNotEmpty) {
+      _apiKey = storedKey;
+    }
+
+    final storedUrl = await _secureStorage!.getBaseUrl();
+    if (storedUrl != null && storedUrl.isNotEmpty) {
+      _baseUrl = storedUrl;
+    }
+
+    final storedModel = await _secureStorage!.getModelName();
+    if (storedModel != null && storedModel.isNotEmpty) {
+      _model = storedModel;
+    }
+  }
 
   /// 当前模型名
   String get modelName => _model;
@@ -54,11 +92,40 @@ class AiEngine {
   /// 设置 API 端点
   void setBaseUrl(String url) => _baseUrl = url;
 
+  /// 切换为 Ollama 本地模式
+  void setOllamaMode({String? model}) {
+    _baseUrl = 'http://localhost:11434/v1';
+    _model = model ?? 'llama3:8b';
+  }
+
+  /// 切换为云端模式
+  void setCloudMode({
+    String? url,
+    String? model,
+  }) {
+    _baseUrl = url ?? dotenv.env['LLM_BASE_URL'] ?? 'https://api.deepseek.com/v1';
+    _model = model ?? dotenv.env['LLM_MODEL_NAME'] ?? 'deepseek-chat';
+  }
+
+  /// 检查是否需要脱敏处理
+  bool get _shouldAnonymize =>
+      _settings != null && _settings!.anonymizeData;
+
+  /// 对用户消息做预处理（脱敏等）
+  String _preprocessMessage(String message) {
+    if (_shouldAnonymize) {
+      return DataAnonymizer.anonymize(message);
+    }
+    return message;
+  }
+
   // ==================== 非流式调用 ====================
 
   /// 发送消息并返回完整回复
   Future<String> chat(String systemPrompt, String userMessage) async {
     if (!isConfigured) return _fallbackResponse(systemPrompt);
+
+    final processedMessage = _preprocessMessage(userMessage);
 
     try {
       final uri = Uri.parse('$_baseUrl/chat/completions');
@@ -73,7 +140,7 @@ class AiEngine {
               'model': _model,
               'messages': [
                 {'role': 'system', 'content': systemPrompt},
-                {'role': 'user', 'content': userMessage},
+                {'role': 'user', 'content': processedMessage},
               ],
               'temperature': 0.7,
               'max_tokens': 2000,
@@ -102,11 +169,6 @@ class AiEngine {
   // ==================== Function Calling / Tool Use ====================
 
   /// 调用大模型 Function Calling，返回工具调用的 JSON 参数
-  /// [systemPrompt] 系统提示词
-  /// [userMessage] 用户输入的文本
-  /// [tools] OpenAI 兼容的 tools 定义列表
-  /// [toolChoice] 工具选择策略，默认 "auto"
-  /// 返回解析后的 tool call arguments（Map），失败返回 null
   Future<Map<String, dynamic>?> functionCall({
     required String systemPrompt,
     required String userMessage,
@@ -114,6 +176,8 @@ class AiEngine {
     String toolChoice = 'auto',
   }) async {
     if (!isConfigured) return null;
+
+    final processedMessage = _preprocessMessage(userMessage);
 
     try {
       final uri = Uri.parse('$_baseUrl/chat/completions');
@@ -128,7 +192,7 @@ class AiEngine {
               'model': _model,
               'messages': [
                 {'role': 'system', 'content': systemPrompt},
-                {'role': 'user', 'content': userMessage},
+                {'role': 'user', 'content': processedMessage},
               ],
               'tools': tools,
               'tool_choice': toolChoice,
@@ -180,6 +244,8 @@ class AiEngine {
       return;
     }
 
+    final processedMessage = _preprocessMessage(userMessage);
+
     try {
       final uri = Uri.parse('$_baseUrl/chat/completions');
       final request = http.Request('POST', uri)
@@ -191,7 +257,7 @@ class AiEngine {
           'model': _model,
           'messages': [
             {'role': 'system', 'content': systemPrompt},
-            {'role': 'user', 'content': userMessage},
+            {'role': 'user', 'content': processedMessage},
           ],
           'stream': true,
           'temperature': 0.7,

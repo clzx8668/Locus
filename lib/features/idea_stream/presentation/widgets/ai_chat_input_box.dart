@@ -4,8 +4,9 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../../../core/services/ai_engine.dart';
-import '../../../../core/database/database.dart';
 import '../../../../core/theme/design_system.dart';
+import '../../../chat/data/chat_repository.dart';
+import '../../data/idea_repository.dart';
 import '../pages/template_management_page.dart';
 
 // ==========================================
@@ -50,12 +51,19 @@ enum AiInputMode {
 
   /// 知识库模式：第二个按钮为知识库选择，无 @ 模板功能
   knowledge,
+
+  /// 快速记录模式：仅文本输入 + 发送，无功能按钮，发送触发 onSendRecord
+  record,
 }
 
 /// AI 输入框可选配置
 class AiInputConfig {
   /// 输入模式，默认 template
   final AiInputMode mode;
+
+  /// 是否应用 viewInsets.bottom 填充（用于键盘避让）。默认 true。
+  /// 当组件嵌套在已处理键盘避让的容器（如 showModalBottomSheet）中时，设为 false。
+  final bool applyKeyboardPadding;
 
   /// 知识库模式：可用的知识库文件列表
   final List<KnowledgeFile>? knowledgeFiles;
@@ -77,6 +85,7 @@ class AiInputConfig {
 
   const AiInputConfig({
     this.mode = AiInputMode.template,
+    this.applyKeyboardPadding = true,
     this.knowledgeFiles,
     this.selectedKnowledgeIds = const {},
     this.onKnowledgeChanged,
@@ -112,6 +121,15 @@ class AiChatInputBox extends StatefulWidget {
   final ValueChanged<List<String>>? onAttachmentPicked;
   final VoidCallback? onTemplateManage;
 
+  /// Called when a rule-type template is selected from the picker
+  final void Function(AiTemplate)? onRuleTemplateSelected;
+
+  /// Called when a chat-type template is selected from the picker
+  final ValueChanged<AiTemplate>? onChatTemplateSelected;
+
+  /// record 模式下发送时触发（替代 onSend，传递原始文本）
+  final void Function(String text)? onSendRecord;
+
   const AiChatInputBox({
     super.key,
     required this.textController,
@@ -125,6 +143,9 @@ class AiChatInputBox extends StatefulWidget {
     this.onAttachmentPicked,
     this.onTemplateManage,
     this.inputConfig,
+    this.onRuleTemplateSelected,
+    this.onChatTemplateSelected,
+    this.onSendRecord,
   });
 
   @override
@@ -160,8 +181,12 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final containerBg = isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5);
-    final borderColor = isDark ? const Color(0xFF333333) : const Color(0xFFE0E0E0);
+    final containerBg = isDark
+        ? const Color(0xFF262626)
+        : const Color(0xFFF1F3F5);
+    final borderColor = isDark
+        ? const Color(0xFF333333)
+        : const Color(0xFFE0E0E0);
 
     return Container(
       decoration: BoxDecoration(
@@ -175,7 +200,9 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
       ),
       child: Padding(
         padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
+          bottom: _shouldApplyKeyboardPadding
+              ? MediaQuery.of(context).viewInsets.bottom
+              : 0,
         ),
         child: SafeArea(
           child: Padding(
@@ -287,7 +314,38 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
   bool get _isKnowledgeMode =>
       widget.inputConfig?.mode == AiInputMode.knowledge;
 
+  bool get _isRecordMode => widget.inputConfig?.mode == AiInputMode.record;
+
+  bool get _shouldApplyKeyboardPadding =>
+      widget.inputConfig?.applyKeyboardPadding ?? true;
+
   Widget _buildFunctionRow(bool isDark) {
+    // record 模式：左附件 + 右语音/发送，无模型/@/知识库按钮
+    if (_isRecordMode) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // 左侧：附件选择按钮
+          _buildAttachButton(isDark),
+          // 右侧：语音/键盘切换 + 发送
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!_isVoiceMode && !_textNotEmpty) ...[
+                _buildToggleButton(isDark),
+                const SizedBox(width: 8),
+              ],
+              if (_isVoiceMode) ...[
+                _buildToggleButton(isDark),
+                const SizedBox(width: 8),
+              ],
+              if (!_isVoiceMode && _textNotEmpty) ...[_buildSendButton(isDark)],
+              if (_isVoiceMode) ...[_buildVoiceSubmitButton(isDark)],
+            ],
+          ),
+        ],
+      );
+    }
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -339,9 +397,9 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
   // ==================== 模型选择按钮 ====================
 
   Widget _buildModelButton(bool isDark) {
-    final currentModel = AiEngine.availableModels.firstWhere(
+    final currentModel = AiEngine.availableCloudModels.firstWhere(
       (m) => m.id == widget.selectedModel,
-      orElse: () => AiEngine.availableModels.first,
+      orElse: () => AiEngine.availableCloudModels.first,
     );
 
     return GestureDetector(
@@ -399,7 +457,10 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Text(
                     '选择 AI 模型',
                     style: TextStyle(
@@ -410,7 +471,7 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
                   ),
                 ),
                 const Divider(),
-                ...AiEngine.availableModels.map((model) {
+                ...AiEngine.availableCloudModels.map((model) {
                   final isSelected = widget.selectedModel == model.id;
                   return ListTile(
                     leading: Icon(
@@ -424,8 +485,9 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
                       model.name,
                       style: TextStyle(
                         fontSize: 14,
-                        fontWeight:
-                            isSelected ? FontWeight.w600 : FontWeight.normal,
+                        fontWeight: isSelected
+                            ? FontWeight.w600
+                            : FontWeight.normal,
                         color: isSelected
                             ? const Color(0xFFFF6B6B)
                             : (isDark ? Colors.white : Colors.black87),
@@ -439,8 +501,11 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
                       ),
                     ),
                     trailing: isSelected
-                        ? const Icon(Icons.check_rounded,
-                            color: Color(0xFFFF6B6B), size: 20)
+                        ? const Icon(
+                            Icons.check_rounded,
+                            color: Color(0xFFFF6B6B),
+                            size: 20,
+                          )
                         : null,
                     onTap: () {
                       widget.onModelChanged(model);
@@ -468,9 +533,7 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
         } else {
           Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) => const TemplateManagementPage(),
-            ),
+            MaterialPageRoute(builder: (_) => const TemplateManagementPage()),
           );
         }
       },
@@ -507,6 +570,14 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
       return;
     }
 
+    final chatTemplates = templates
+        .where((t) => t.templateType == 'chat')
+        .toList();
+    final ruleTemplates = templates
+        .where((t) => t.templateType == 'rule')
+        .toList();
+    final hasBothTypes = chatTemplates.isNotEmpty && ruleTemplates.isNotEmpty;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
@@ -514,98 +585,186 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        '选择模板',
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: isDark ? Colors.white : Colors.black87,
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const TemplateManagementPage(),
-                            ),
-                          );
-                        },
-                        child: Text(
-                          '管理',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: const Color(0xFFFF6B6B),
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+        if (hasBothTypes) {
+          return _buildTabbedPicker(ctx, isDark, chatTemplates, ruleTemplates);
+        }
+        final activeTemplates = chatTemplates.isNotEmpty
+            ? chatTemplates
+            : ruleTemplates;
+        return _buildFlatPicker(ctx, isDark, activeTemplates);
+      },
+    );
+  }
+
+  Widget _buildFlatPicker(
+    BuildContext sheetCtx,
+    bool isDark,
+    List<AiTemplate> templates,
+  ) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildPickerHeader(sheetCtx, isDark),
+            const Divider(),
+            ...templates.map((t) => _buildTemplateTile(sheetCtx, t, isDark)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabbedPicker(
+    BuildContext sheetCtx,
+    bool isDark,
+    List<AiTemplate> chatTemplates,
+    List<AiTemplate> ruleTemplates,
+  ) {
+    return DefaultTabController(
+      length: 2,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildPickerHeader(sheetCtx, isDark),
+              TabBar(
+                labelColor: const Color(0xFFFF6B6B),
+                unselectedLabelColor: isDark
+                    ? Colors.grey[400]
+                    : Colors.grey[600],
+                tabs: const [
+                  Tab(text: '对话'),
+                  Tab(text: '规则'),
+                ],
+              ),
+              const Divider(height: 1),
+              SizedBox(
+                height: 320,
+                child: TabBarView(
+                  children: [
+                    _buildTemplateList(sheetCtx, chatTemplates, isDark),
+                    _buildTemplateList(sheetCtx, ruleTemplates, isDark),
+                  ],
                 ),
-                const Divider(),
-                ...templates.map((t) {
-                  return ListTile(
-                    leading: Text(
-                      t.icon,
-                      style: const TextStyle(fontSize: 22),
-                    ),
-                    title: Text(
-                      t.name,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: isDark ? Colors.white : Colors.black87,
-                      ),
-                    ),
-                    subtitle: Text(
-                      t.prompt.length > 40
-                          ? '${t.prompt.substring(0, 40)}…'
-                          : t.prompt,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: isDark ? Colors.grey[500] : Colors.grey[500],
-                      ),
-                    ),
-                    onTap: () {
-                      // 插入模板 prompt 到光标位置
-                      final controller = widget.textController;
-                      final text = controller.text;
-                      final selection = controller.selection;
-                      final cursorPos = selection.isValid
-                          ? selection.start
-                          : text.length;
-                      final newText =
-                          '${text.substring(0, cursorPos)}${t.prompt}${text.substring(cursorPos)}';
-                      controller.text = newText;
-                      controller.selection = TextSelection.collapsed(
-                        offset: cursorPos + t.prompt.length,
-                      );
-                      widget.focusNode?.requestFocus();
-                      if (widget.onTemplateSelected != null) {
-                        widget.onTemplateSelected!(t);
-                      }
-                      Navigator.pop(ctx);
-                    },
-                  );
-                }),
-              ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPickerHeader(BuildContext sheetCtx, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            '选择模板',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: isDark ? Colors.white : Colors.black87,
             ),
           ),
-        );
+          GestureDetector(
+            onTap: () {
+              Navigator.pop(sheetCtx);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const TemplateManagementPage(),
+                ),
+              );
+            },
+            child: Text(
+              '管理',
+              style: TextStyle(
+                fontSize: 13,
+                color: const Color(0xFFFF6B6B),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTemplateList(
+    BuildContext sheetCtx,
+    List<AiTemplate> templates,
+    bool isDark,
+  ) {
+    if (templates.isEmpty) {
+      return Center(
+        child: Text(
+          '暂无模板',
+          style: TextStyle(color: isDark ? Colors.grey[500] : Colors.grey[600]),
+        ),
+      );
+    }
+    return ListView.builder(
+      itemCount: templates.length,
+      itemBuilder: (context, index) =>
+          _buildTemplateTile(sheetCtx, templates[index], isDark),
+    );
+  }
+
+  Widget _buildTemplateTile(BuildContext sheetCtx, AiTemplate t, bool isDark) {
+    final theme = Theme.of(context);
+    return ListTile(
+      leading: Text(t.icon, style: const TextStyle(fontSize: 22)),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              t.name,
+              style: TextStyle(
+                fontSize: 14,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+          ),
+          if (t.templateType == 'rule')
+            Padding(
+              padding: const EdgeInsets.only(left: 6),
+              child: Icon(
+                Icons.auto_fix_high,
+                size: 14,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+        ],
+      ),
+      subtitle: Text(
+        (t.templateType == 'rule' ? '规则化 · ' : '') +
+            (t.prompt.length > 35 ? '${t.prompt.substring(0, 35)}…' : t.prompt),
+        style: TextStyle(
+          fontSize: 11,
+          color: t.templateType == 'rule'
+              ? theme.colorScheme.primary
+              : (isDark ? Colors.grey[500] : Colors.grey[500]),
+        ),
+      ),
+      onTap: () {
+        if (t.templateType == 'rule') {
+          widget.onRuleTemplateSelected?.call(t);
+        } else {
+          // Chat template: directly trigger processing
+          widget.onChatTemplateSelected?.call(t);
+          if (widget.onTemplateSelected != null) {
+            widget.onTemplateSelected!(t);
+          }
+        }
+        Navigator.pop(sheetCtx);
       },
     );
   }
@@ -683,7 +842,9 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
                   children: [
                     Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -726,8 +887,8 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
                             color: isChecked
                                 ? const Color(0xFFFF6B6B)
                                 : (isDark
-                                    ? Colors.grey[400]
-                                    : Colors.grey[600]),
+                                      ? Colors.grey[400]
+                                      : Colors.grey[600]),
                           ),
                           title: Text(
                             file.name,
@@ -743,8 +904,9 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
                             '${file.isActive ? '已激活' : '未激活'}',
                             style: TextStyle(
                               fontSize: 11,
-                              color:
-                                  isDark ? Colors.grey[500] : Colors.grey[500],
+                              color: isDark
+                                  ? Colors.grey[500]
+                                  : Colors.grey[500],
                             ),
                           ),
                           trailing: Checkbox(
@@ -815,8 +977,11 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
       padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
       child: Column(
         children: [
-          Icon(Icons.folder_open_rounded,
-              size: 48, color: isDark ? Colors.grey[700] : Colors.grey[400]),
+          Icon(
+            Icons.folder_open_rounded,
+            size: 48,
+            color: isDark ? Colors.grey[700] : Colors.grey[400],
+          ),
           const SizedBox(height: 12),
           Text(
             '暂无知识库文件',
@@ -976,8 +1141,10 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Text(
                     '添加附件',
                     style: TextStyle(
@@ -1071,13 +1238,18 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
   }
 
   Future<void> _pickFiles(
-      BuildContext ctx, FileType type, [List<String>? allowedExtensions]) async {
+    BuildContext ctx,
+    FileType type, [
+    List<String>? allowedExtensions,
+  ]) async {
     try {
       final result = await FilePicker.pickFiles(
         type: type,
         allowedExtensions: allowedExtensions,
       );
-      if (result != null && result.paths.isNotEmpty && widget.onAttachmentPicked != null) {
+      if (result != null &&
+          result.paths.isNotEmpty &&
+          widget.onAttachmentPicked != null) {
         widget.onAttachmentPicked!(result.paths.whereType<String>().toList());
       }
     } catch (e) {
@@ -1099,8 +1271,17 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
   // ==================== 发送按钮 ====================
 
   Widget _buildSendButton(bool isDark) {
+    final onPressed = widget.isAiWorking
+        ? null
+        : () {
+            if (_isRecordMode && widget.onSendRecord != null) {
+              widget.onSendRecord!(widget.textController.text);
+            } else {
+              widget.onSend();
+            }
+          };
     return GestureDetector(
-      onTap: widget.isAiWorking ? null : widget.onSend,
+      onTap: onPressed,
       child: Container(
         width: 36,
         height: 36,
@@ -1118,11 +1299,7 @@ class _AiChatInputBoxState extends State<AiChatInputBox> {
                   color: Colors.white,
                 ),
               )
-            : const Icon(
-                Icons.send_rounded,
-                size: 16,
-                color: Colors.white,
-              ),
+            : const Icon(Icons.send_rounded, size: 16, color: Colors.white),
       ),
     );
   }

@@ -49,6 +49,17 @@ Locus 是一个基于 **Local-First（本地优先）** 理念打造的多模态
 
 ---
 
+## 🧰 开发环境固化
+
+- Flutter SDK 根目录固定为 `D:\flutter`
+- Android SDK 根目录固定为 `D:\AndroidSDK`
+- 已接入 `zvec 0.5.2`，当前要求 `Dart 3.11.3+`，建议使用 `Flutter 3.41.9+`
+- 后续开发、脚本与 AI 协作处理 Flutter / Android 工具链问题时，默认只检查 `D:\flutter` 与 `D:\AndroidSDK`，不要擅自把 SDK 根目录切到 `C:\Users\...`
+- 仓库内可直接使用 `scripts/use_locus_dev_env.ps1` 切换当前终端到项目约定环境
+- 详细说明见 [docs/development_environment.md](file:///e:/Dev/Locus/docs/development_environment.md)
+
+---
+
 ## 🗺️ 开发路线图 (Roadmap)
 
 ### Phase 1：核心基座搭建
@@ -81,4 +92,15 @@ Locus 是一个基于 **Local-First（本地优先）** 理念打造的多模态
 
 ## 🚀 快速启动 (Getting Started)
 
-> 待开发环境配置完毕后补充相关 `flutter run` 命令与依赖要求。
+1. 确认 Flutter SDK 指向 `D:\flutter` 下满足版本要求的安装
+2. 确认 Android SDK 位于 `D:\AndroidSDK`
+3. 执行：
+
+```powershell
+. .\scripts\use_locus_dev_env.ps1
+flutter --version
+flutter pub get
+dart run build_runner build --delete-conflicting-outputs
+flutter analyze
+flutter run
+```

@@ -7,6 +7,7 @@ class ExtractedEntities {
   final String? dueDateText; // 原始时间文本，如"明天"、"下周三"
   final String? category; // 记账分类
   final int priority; // 0-3
+  final String? title; // TODO 待办标题（AI 或本地提取）
 
   const ExtractedEntities({
     required this.intentTag,
@@ -16,17 +17,19 @@ class ExtractedEntities {
     this.dueDateText,
     this.category,
     this.priority = 0,
+    this.title,
   });
 
   Map<String, dynamic> toJson() => {
-        'intentTag': intentTag,
-        'amount': amount,
-        'personName': personName,
-        'company': company,
-        'dueDateText': dueDateText,
-        'category': category,
-        'priority': priority,
-      };
+    'intentTag': intentTag,
+    'amount': amount,
+    'personName': personName,
+    'company': company,
+    'dueDateText': dueDateText,
+    'category': category,
+    'priority': priority,
+    'title': title,
+  };
 }
 
 class IntentRouter {
@@ -71,25 +74,26 @@ class IntentRouter {
 
     // --- 金额抽取 ---
     double? amount;
-    final amountMatch =
-        RegExp(r'(\d+\.?\d*)\s*(元|块|￥|¥|💰|块钱|元钱|块钱)').firstMatch(text);
+    final amountMatch = RegExp(
+      r'(\d+\.?\d*)\s*(元|块|￥|¥|💰|块钱|元钱|块钱)',
+    ).firstMatch(text);
     if (amountMatch != null) {
       amount = double.tryParse(amountMatch.group(1)!);
     }
 
     // --- 人名/公司抽取 ---
     String? personName;
-    final nameMatch =
-        RegExp(r'(?:客户|联系人|拜访|回访|联系)[：:\s]*(\S{1,10})(?:[，,。.!！\s]|$)')
-            .firstMatch(text);
+    final nameMatch = RegExp(
+      r'(?:客户|联系人|拜访|回访|联系)[：:\s]*(\S{1,10})(?:[，,。.!！\s]|$)',
+    ).firstMatch(text);
     if (nameMatch != null) {
       personName = nameMatch.group(1)?.trim();
     }
 
     String? company;
-    final companyMatch =
-        RegExp(r'(?:公司|企业|单位)[：:\s]*(\S{1,20})(?:[，,。.!！\s]|$)')
-            .firstMatch(text);
+    final companyMatch = RegExp(
+      r'(?:公司|企业|单位)[：:\s]*(\S{1,20})(?:[，,。.!！\s]|$)',
+    ).firstMatch(text);
     if (companyMatch != null) {
       company = companyMatch.group(1)?.trim();
     }
@@ -97,8 +101,8 @@ class IntentRouter {
     // --- 时间抽取 ---
     String? dueDateText;
     final timeMatch = RegExp(
-            r'(明天|后天|大后天|下周[一二三四五六日天]|下下周|\d{1,2}月\d{1,2}日?|\d{1,2}:\d{2}|上午|下午|晚上|今晚|明早)')
-        .firstMatch(text);
+      r'(明天|后天|大后天|下周[一二三四五六日天]|下下周|\d{1,2}月\d{1,2}日?|\d{1,2}:\d{2}|上午|下午|晚上|今晚|明早)',
+    ).firstMatch(text);
     if (timeMatch != null) {
       dueDateText = timeMatch.group(1);
     }
@@ -117,6 +121,35 @@ class IntentRouter {
       priority = 2;
     }
 
+    // --- 待办标题提取 ---
+    String? title;
+    if (intentTag == 'TODO') {
+      // 去除时间描述
+      String cleaned = text.replaceAll(
+        RegExp(
+          r'(明天|后天|大后天|下周[一二三四五六日天]|下下周|'
+          r'\d{1,2}月\d{1,2}日?|\d{1,2}:\d{2}|'
+          r'上午|下午|晚上|今晚|明早|'
+          r'记得|别忘了|提醒我|提醒)',
+        ),
+        '',
+      );
+      // 去除人名
+      cleaned = cleaned.replaceAll(
+        RegExp(r'[跟和与找联系]\s*\S{1,4}(?:开会|讨论|吃饭)'),
+        '',
+      );
+      cleaned = cleaned.trim();
+      // 去标点取核心
+      if (cleaned.isNotEmpty) {
+        title = cleaned.replaceAll(RegExp(r'^[，。！？、,\\.!?\s]+'), '');
+        title = title!.replaceAll(RegExp(r'[，。！？、,\\.!?\s]+$'), '');
+        if (title!.length > 50) {
+          title = '${title!.substring(0, 50)}...';
+        }
+      }
+    }
+
     return ExtractedEntities(
       intentTag: intentTag,
       amount: amount,
@@ -125,6 +158,7 @@ class IntentRouter {
       dueDateText: dueDateText,
       category: category,
       priority: priority,
+      title: title,
     );
   }
 

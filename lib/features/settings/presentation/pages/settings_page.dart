@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/di/service_locator.dart';
 import '../../../../core/services/settings_service.dart';
 import '../../../../core/theme/design_system.dart';
+import 'ai_settings_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -66,6 +67,9 @@ class _SettingsPageState extends State<SettingsPage> {
             title: 'API Keys / 模型配置',
             subtitle: '本地 Ollama / 线上大模型对接',
             colors: colors,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AiSettingsPage()),
+            ),
           ),
           const SizedBox(height: 24),
           _buildGroupHeader('账户', colors),
@@ -106,6 +110,7 @@ class _SettingsPageState extends State<SettingsPage> {
     required String title,
     required String subtitle,
     required AppColorsExtension colors,
+    VoidCallback? onTap,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -134,6 +139,7 @@ class _SettingsPageState extends State<SettingsPage> {
             style: AppTypography.caption.copyWith(color: colors.textSecondary)),
         trailing: Icon(Icons.chevron_right_rounded,
             color: colors.textTertiary, size: 20),
+        onTap: onTap,
       ),
     );
   }

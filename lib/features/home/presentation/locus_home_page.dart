@@ -5,6 +5,7 @@ import '../../idea_stream/presentation/pages/idea_stream_page.dart';
 import '../../calendar/presentation/pages/calendar_page.dart';
 import '../../ai_hub/presentation/pages/ai_hub_page.dart';
 import '../../settings/presentation/pages/settings_page.dart';
+import '../../dashboard/presentation/pages/dashboard_page.dart';
 
 class LocusHomePage extends StatefulWidget {
   const LocusHomePage({super.key});
@@ -38,6 +39,7 @@ class _LocusHomePageState extends State<LocusHomePage> {
       const RepaintBoundary(child: CalendarPage()),
       const RepaintBoundary(child: AiHubPage()),
       const RepaintBoundary(child: SettingsPage()),
+      const RepaintBoundary(child: DashboardPage()),
     ];
   }
 
@@ -230,6 +232,11 @@ class _LocusHomePageState extends State<LocusHomePage> {
                     selectedIcon:
                         Icon(Icons.settings, color: Color(0xFFFF6B6B)),
                     label: '设置'),
+                NavigationDestination(
+                    icon: Icon(Icons.dashboard_outlined),
+                    selectedIcon:
+                        Icon(Icons.dashboard, color: Color(0xFFFF6B6B)),
+                    label: '数据看板'),
               ],
             ),
           ),
@@ -249,6 +256,7 @@ class _LocusHomePageState extends State<LocusHomePage> {
       {'label': '日历', 'icon': Icons.calendar_month},
       {'label': 'AI枢纽', 'icon': Icons.hub},
       {'label': '设置', 'icon': Icons.settings},
+      {'label': '数据看板', 'icon': Icons.dashboard},
     ];
 
     return Container(

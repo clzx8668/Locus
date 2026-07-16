@@ -16,40 +16,24 @@ class ProcessingStatusIndicator extends StatelessWidget {
         // 刚写入，不显示任何指示
         return const SizedBox.shrink();
       case ProcessingStatus.vectorChecking:
+      case ProcessingStatus.textCleaned:
+        return _buildStaticIcon(Icons.manage_search_rounded, const Color(0xFF42A5F5));
       case ProcessingStatus.aiRouting:
+        return _buildStaticIcon(Icons.auto_awesome_rounded, Colors.amber);
       case ProcessingStatus.dispatching:
-        return _buildSpinningIcon();
+      case ProcessingStatus.pendingReview:
+        return _buildStaticIcon(Icons.inbox_rounded, const Color(0xFF7E57C2));
       case ProcessingStatus.failedRetry:
-        return _buildWaitingIcon();
+        return _buildStaticIcon(Icons.hourglass_empty_rounded, const Color(0xFFFFA726));
       case ProcessingStatus.dispatched:
-        return _buildDoneIcon();
+      case ProcessingStatus.decayed:
+        return _buildStaticIcon(Icons.check_circle_rounded, const Color(0xFF66BB6A));
+      case ProcessingStatus.offlineSaved:
+        return _buildStaticIcon(Icons.cloud_off_rounded, const Color(0xFFFFA726));
     }
   }
 
-  Widget _buildSpinningIcon() {
-    return const SizedBox(
-      width: 16,
-      height: 16,
-      child: CircularProgressIndicator(
-        strokeWidth: 2,
-        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF6B6B)),
-      ),
-    );
-  }
-
-  Widget _buildWaitingIcon() {
-    return const Icon(
-      Icons.hourglass_empty_rounded,
-      size: 14,
-      color: Color(0xFFFFA726), // 橙色表示等待
-    );
-  }
-
-  Widget _buildDoneIcon() {
-    return const Icon(
-      Icons.check_circle_rounded,
-      size: 16,
-      color: Color(0xFF66BB6A), // 绿色表示完成
-    );
+  Widget _buildStaticIcon(IconData icon, Color color) {
+    return Icon(icon, size: 14, color: color);
   }
 }

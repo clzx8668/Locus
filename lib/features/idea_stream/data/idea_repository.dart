@@ -1,3 +1,12 @@
+export '../../../core/database/database.dart'
+    show
+        AiConversation,
+        AiTemplate,
+        ContentBlock,
+        DispatchInboxData,
+        HubPayload,
+        HubPayloadsCompanion;
+
 import 'dart:convert';
 import '../../../core/database/database.dart';
 import '../../../core/enums/processing_status.dart';
@@ -37,6 +46,21 @@ class IdeaRepository {
   /// 实时监听单条闪念
   Stream<HubPayload?> watchById(int id) => _db.watchPayloadById(id);
 
+  Future<HubPayload?> getById(int id) => _db.getPayloadById(id);
+
+  Future<HubPayload?> getByUuid(String uuid) => _db.getPayloadByUuid(uuid);
+
+  Future<List<HubPayload>> getByUuids(List<String> uuids) =>
+      _db.getPayloadsByUuids(uuids);
+
+  Future<String?> getUuidById(int id) => _db.getPayloadUuid(id);
+
+  Future<List<HubPayload>> getPendingVectorPayloads() =>
+      _db.getPendingVectorPayloads();
+
+  Future<List<HubPayload>> getByProcessingStatus(String status, {int limit = 50}) =>
+      _db.getPayloadsByStatus(status, limit: limit);
+
   /// 获取标签使用统计
   Future<Map<String, int>> getTagStats() => _db.getTagStats();
 
@@ -50,6 +74,8 @@ class IdeaRepository {
   Future<void> updateDispatchedRef(int id, String ref) =>
       _db.updateDispatchedRef(id, ref);
 
+  Future<void> clearDispatchedRef(int id) => _db.clearDispatchedRef(id);
+
   /// 更新 AI 抽取实体
   Future<void> updateAiEntities(int id, String entitiesJson) =>
       _db.updateAiEntities(id, entitiesJson);
@@ -57,22 +83,21 @@ class IdeaRepository {
   /// 标记为废话
   Future<void> markAsEphemeral(int id) => _db.markAsEphemeral(id);
 
-  // ==================== 任务清单 ====================
+  /// 当主内容发生变化时，清空旧的路由痕迹并重置到待重处理状态
+  Future<void> prepareForReprocessing(int id) =>
+      _db.preparePayloadForReprocessing(id);
 
-  /// 监听某条闪念的所有任务
-  Stream<List<IdeaTask>> watchTasks(int payloadId) =>
-      _db.watchTasksForPayload(payloadId);
+  Future<void> resetToSyncedLocal(int id) =>
+      _db.updateProcessingStatus(id, ProcessingStatus.syncedLocal.toDbValue());
 
-  /// 新增任务
-  Future<int> addTask(int payloadId, String content, [int sortOrder = 0]) =>
-      _db.insertTask(payloadId, content, sortOrder);
+  Stream<List<DispatchInboxData>> watchActiveDispatchInbox(int payloadId) =>
+      _db.watchDispatchInboxForPayload(
+        payloadId,
+        statuses: const ['pending', 'confirmed'],
+      );
 
-  /// 切换任务完成状态
-  Future<void> toggleTask(int taskId, bool isDone) =>
-      _db.toggleTask(taskId, isDone);
-
-  /// 删除单个任务
-  Future<int> removeTask(int taskId) => _db.deleteTask(taskId);
+  Future<DispatchInboxData?> getDispatchInboxByPayloadId(int payloadId) =>
+      _db.getDispatchInboxByPayloadId(payloadId);
 
   // ==================== 内容追加块 ====================
 
@@ -148,8 +173,9 @@ class TemplateRepository {
 
   Stream<List<AiTemplate>> watchAll() => _db.watchAllTemplates();
 
-  Future<int> insert(String icon, String name, String prompt) =>
-      _db.insertTemplate(icon, name, prompt);
+  Future<int> insert(String icon, String name, String prompt,
+          {String? templateType}) =>
+      _db.insertTemplate(icon, name, prompt, templateType: templateType);
 
   Future<void> update(
     int id, {
@@ -158,6 +184,7 @@ class TemplateRepository {
     String? prompt,
     bool? isEnabled,
     int? sortOrder,
+    String? templateType,
   }) =>
       _db.updateTemplate(
         id,
@@ -166,6 +193,7 @@ class TemplateRepository {
         prompt: prompt,
         isEnabled: isEnabled,
         sortOrder: sortOrder,
+        templateType: templateType,
       );
 
   Future<void> delete(int id) => _db.deleteTemplate(id);

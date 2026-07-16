@@ -5,20 +5,33 @@ import '../../core/theme/design_system.dart';
 class SettingsService extends ChangeNotifier {
   SharedPreferences? _prefs;
 
+  // 外观/视觉键
   static const _keyThemeMode = 'theme_mode';
   static const _keyLightColorTheme = 'light_color_theme';
   static const _keyDarkColorTheme = 'dark_color_theme';
   static const _keyFontScale = 'font_scale';
   static const _keyBlockColors = 'block_colors';
 
-  // --- 状态 ---
+  // AI / 隐私 / 离线键
+  static const _keyOllamaEnabled = 'ollama_enabled';
+  static const _keyOllamaBaseUrl = 'ollama_base_url';
+  static const _keyAnonymizeData = 'anonymize_data';
+  static const _keyOfflineMode = 'offline_mode';
+
+  // --- 外观状态 ---
   ThemeMode _themeMode = ThemeMode.system;
   AppThemeStyle _lightColorTheme = AppThemeStyle.light;
   AppThemeStyle _darkColorTheme = AppThemeStyle.dark;
   double _fontScale = 1.0;
   List<int>? _blockColors;
 
-  // --- Getters ---
+  // --- AI / 隐私状态 ---
+  bool _ollamaEnabled = false;
+  String _ollamaBaseUrl = 'http://localhost:11434/v1';
+  bool _anonymizeData = false;
+  bool _offlineMode = false;
+
+  // --- 外观 Getters ---
   ThemeMode get themeMode => _themeMode;
   AppThemeStyle get lightColorTheme => _lightColorTheme;
   AppThemeStyle get darkColorTheme => _darkColorTheme;
@@ -26,6 +39,12 @@ class SettingsService extends ChangeNotifier {
 
   /// 内容块背景颜色列表（每项为 0xAARRGGBB 格式的 int），null 使用默认色
   List<int>? get blockColors => _blockColors;
+
+  // --- AI / 隐私 Getters ---
+  bool get ollamaEnabled => _ollamaEnabled;
+  String get ollamaBaseUrl => _ollamaBaseUrl;
+  bool get anonymizeData => _anonymizeData;
+  bool get offlineMode => _offlineMode;
 
   /// 当前激活的主题色系（根据当前明暗模式）
   AppThemeStyle get effectiveColorTheme {
@@ -85,6 +104,8 @@ class SettingsService extends ChangeNotifier {
   // --- 初始化 ---
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
+
+    // 外观
     _themeMode = _parseThemeMode(_prefs!.getString(_keyThemeMode));
     _lightColorTheme =
         _parseColorTheme(_prefs!.getString(_keyLightColorTheme), false);
@@ -96,6 +117,14 @@ class SettingsService extends ChangeNotifier {
         ?.map((e) => int.tryParse(e))
         .whereType<int>()
         .toList();
+
+    // AI / 隐私
+    _ollamaEnabled = _prefs!.getBool(_keyOllamaEnabled) ?? false;
+    _ollamaBaseUrl =
+        _prefs!.getString(_keyOllamaBaseUrl) ?? 'http://localhost:11434/v1';
+    _anonymizeData = _prefs!.getBool(_keyAnonymizeData) ?? false;
+    _offlineMode = _prefs!.getBool(_keyOfflineMode) ?? false;
+
     notifyListeners();
   }
 
@@ -137,6 +166,36 @@ class SettingsService extends ChangeNotifier {
       await _prefs?.setStringList(
           _keyBlockColors, colors.map((c) => c.toString()).toList());
     }
+    notifyListeners();
+  }
+
+  // --- AI / 隐私设置方法 ---
+
+  Future<void> setOllamaEnabled(bool enabled) async {
+    if (_ollamaEnabled == enabled) return;
+    _ollamaEnabled = enabled;
+    await _prefs?.setBool(_keyOllamaEnabled, enabled);
+    notifyListeners();
+  }
+
+  Future<void> setOllamaBaseUrl(String url) async {
+    if (_ollamaBaseUrl == url) return;
+    _ollamaBaseUrl = url;
+    await _prefs?.setString(_keyOllamaBaseUrl, url);
+    notifyListeners();
+  }
+
+  Future<void> setAnonymizeData(bool enabled) async {
+    if (_anonymizeData == enabled) return;
+    _anonymizeData = enabled;
+    await _prefs?.setBool(_keyAnonymizeData, enabled);
+    notifyListeners();
+  }
+
+  Future<void> setOfflineMode(bool enabled) async {
+    if (_offlineMode == enabled) return;
+    _offlineMode = enabled;
+    await _prefs?.setBool(_keyOfflineMode, enabled);
     notifyListeners();
   }
 

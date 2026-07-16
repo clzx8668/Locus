@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 import 'content_block_editor.dart';
 
 /// 全功能块编辑器 —— 用于追加/编辑内容块
@@ -169,6 +170,20 @@ class _FullBlockEditorState extends State<FullBlockEditor> {
       setState(() {
         _mediaPaths.add(photo.path);
         _controller.text += '\n![photo](${photo.path.split('/').last})\n';
+      });
+    }
+  }
+
+  Future<void> _pickFiles() async {
+    final result = await FilePicker.pickFiles(allowMultiple: true);
+    if (result != null && result.files.isNotEmpty) {
+      setState(() {
+        _mediaPaths
+            .addAll(result.files.map((f) => f.path!).where((p) => p != null));
+        for (final file in result.files) {
+          _controller.text +=
+              '\n[${file.name}](${file.path!.split('/').last})\n';
+        }
       });
     }
   }
@@ -766,6 +781,8 @@ class _FullBlockEditorState extends State<FullBlockEditor> {
             _toolChip(Icons.image_outlined, _pickImages),
             const SizedBox(width: 8),
             _toolChip(Icons.camera_alt_outlined, _takePhoto),
+            const SizedBox(width: 8),
+            _toolChip(Icons.attach_file, _pickFiles),
             const SizedBox(width: 8),
             _toolChip(Icons.mic_none_outlined, () {}),
             const Spacer(),

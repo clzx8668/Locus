@@ -49,6 +49,17 @@ The system acts as the first touchpoint to capture your ideas, bills, meeting no
 
 ---
 
+## 🧰 Pinned Development Environment
+
+- Flutter SDK root is pinned to `D:\flutter`
+- Android SDK root is pinned to `D:\AndroidSDK`
+- The project now depends on `zvec 0.5.2`, so the toolchain must satisfy `Dart 3.11.3+`, with `Flutter 3.41.9+` recommended
+- Future Flutter / Android environment fixes should reuse `D:\flutter` and `D:\AndroidSDK` instead of creating SDK roots under `C:\Users\...`
+- The repository includes `scripts/use_locus_dev_env.ps1` to switch the current shell to the pinned D-drive toolchain
+- Full setup notes: [docs/development_environment.md](file:///e:/Dev/Locus/docs/development_environment.md)
+
+---
+
 ## 🗺️ Roadmap
 
 ### Phase 1: Core Foundation
@@ -81,4 +92,15 @@ The system acts as the first touchpoint to capture your ideas, bills, meeting no
 
 ## 🚀 Getting Started
 
-> Relevant `flutter run` commands and dependency requirements will be added once the development environment is fully configured.
+1. Make sure Flutter resolves to a compatible SDK under `D:\flutter`
+2. Make sure Android SDK resolves to `D:\AndroidSDK`
+3. Run:
+
+```powershell
+. .\scripts\use_locus_dev_env.ps1
+flutter --version
+flutter pub get
+dart run build_runner build --delete-conflicting-outputs
+flutter analyze
+flutter run
+```

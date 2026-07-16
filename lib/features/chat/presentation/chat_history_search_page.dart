@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/di/service_locator.dart';
-import '../../../core/database/database.dart';
+import '../data/chat_repository.dart';
 
 class ChatHistorySearchPage extends StatefulWidget {
   const ChatHistorySearchPage({super.key});
@@ -13,7 +13,7 @@ class ChatHistorySearchPage extends StatefulWidget {
 class _ChatHistorySearchPageState extends State<ChatHistorySearchPage> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = "";
-  AppDatabase get db => getIt<AppDatabase>();
+  final ChatRepository _repo = getIt<ChatRepository>();
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +47,7 @@ class _ChatHistorySearchPageState extends State<ChatHistorySearchPage> {
               height: 1, color: theme.dividerColor.withValues(alpha: 0.3)),
           Expanded(
             child: StreamBuilder<List<ChatSession>>(
-              stream: db.watchAllSessions(_searchQuery),
+              stream: _repo.watchAllSessions(_searchQuery),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());

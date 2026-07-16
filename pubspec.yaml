@@ -4,17 +4,20 @@ publish_to: 'none'
 version: 0.1.0
 
 environment:
-  sdk: ^3.6.2
+  sdk: ^3.11.3
 
 dependencies:
+  audioplayers: ^6.0.0
   cupertino_icons: ^1.0.8
   dio: ^5.9.2
   drift: ^2.21.0
   file_picker: ^11.0.2
+  fl_chart: ^0.68.0
   flutter:
     sdk: flutter
   flutter_dotenv: ^6.0.1
   flutter_markdown: ^0.7.7+1
+  flutter_secure_storage: ^9.0.0
   get_it: ^9.2.1
   http: ^1.6.0
   image_picker: ^1.2.0
@@ -25,6 +28,10 @@ dependencies:
   sqlcipher_flutter_libs: ^0.6.8
   sqlite3: ^2.9.4
   syncfusion_flutter_pdf: ^29.1.38
+  table_calendar: ^3.1.0
+  uuid: ^4.5.1
+  video_player: ^2.8.0
+  zvec: ^0.5.2
 
 dev_dependencies:
   flutter_test:

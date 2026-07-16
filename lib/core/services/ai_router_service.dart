@@ -43,18 +43,9 @@ class AiRouterService {
               'enum': ['NOTE', 'TODO', 'CRM', 'LEDGER', 'INVENTORY', 'HABIT'],
               'description': '业务大类标签',
             },
-            'amount': {
-              'type': 'number',
-              'description': '金额（元），仅记账类需要',
-            },
-            'person_name': {
-              'type': 'string',
-              'description': '关联的人名（客户、联系人等）',
-            },
-            'company': {
-              'type': 'string',
-              'description': '公司/企业名称',
-            },
+            'amount': {'type': 'number', 'description': '金额（元），仅记账类需要'},
+            'person_name': {'type': 'string', 'description': '关联的人名（客户、联系人等）'},
+            'company': {'type': 'string', 'description': '公司/企业名称'},
             'due_date_text': {
               'type': 'string',
               'description': '时间描述文本，如"明天"、"下周三"、"3月15日"',
@@ -68,6 +59,11 @@ class AiRouterService {
               'minimum': 0,
               'maximum': 3,
               'description': '优先级：0=无, 1=低, 2=中, 3=高/紧急',
+            },
+            'title': {
+              'type': 'string',
+              'description':
+                  '当intent_tag为TODO时，从用户原文总结提取的待办事项核心主题（一句话摘要），非TODO时留空',
             },
             'is_ephemeral': {
               'type': 'boolean',
@@ -83,9 +79,9 @@ class AiRouterService {
   /// 路由执行 —— 自动双模态切换
   Future<RoutingResult> route(int payloadId) async {
     // 获取 payload 数据
-    final payload = await (_db.select(_db.hubPayloads)
-          ..where((t) => t.id.equals(payloadId)))
-        .getSingleOrNull();
+    final payload = await (_db.select(
+      _db.hubPayloads,
+    )..where((t) => t.id.equals(payloadId))).getSingleOrNull();
 
     if (payload == null) {
       return const RoutingResult(intentTag: 'NOTE', entities: {});
@@ -97,7 +93,8 @@ class AiRouterService {
     if (_connectivity.isOnline) {
       try {
         final result = await _aiEngine.functionCall(
-          systemPrompt: '你是一个个人助理的分类器。请分析用户输入的笔记内容，判断其业务分类并抽取关键实体信息。',
+          systemPrompt:
+              '你是一个个人助理的分类器。请分析用户输入的笔记内容，判断其业务分类并抽取关键实体信息。当识别为TODO（待办事项）时，必须从原文中总结出待办事项的核心主题摘要填充到title字段，去除时间、人名等修饰信息，仅保留核心事项描述。',
           userMessage: text,
           tools: _routingTools,
         );

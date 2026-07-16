@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
 
 /// 内容块编辑器的返回结果
 class BlockEditResult {
@@ -253,10 +254,12 @@ class _QuickBlockEditorState extends State<QuickBlockEditor> {
   }
 
   Future<void> _pickFiles() async {
-    // 通用文件选择——暂时使用拍照作为占位
-    final photo = await _picker.pickImage(source: ImageSource.camera);
-    if (photo != null) {
-      setState(() => _mediaPaths.add(photo.path));
+    final result = await FilePicker.pickFiles(allowMultiple: true);
+    if (result != null && result.files.isNotEmpty) {
+      setState(() {
+        _mediaPaths
+            .addAll(result.files.map((f) => f.path!).where((p) => p != null));
+      });
     }
   }
 
@@ -265,8 +268,8 @@ class _QuickBlockEditorState extends State<QuickBlockEditor> {
     if (!_isRecording) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('录音功能需要接入录音插件'),
-          duration: Duration(seconds: 1),
+          content: Text('录音功能需要在系统设置中开启麦克风权限'),
+          duration: Duration(seconds: 2),
         ),
       );
     }

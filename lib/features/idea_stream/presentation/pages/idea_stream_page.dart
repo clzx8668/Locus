@@ -2,11 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../../core/di/service_locator.dart';
-import '../../../../core/database/database.dart';
 import '../../../../core/services/decay_manager.dart';
 import '../../data/idea_repository.dart';
 import '../widgets/processing_status_indicator.dart';
 import 'idea_detail_page.dart';
+import 'tag_browser_page.dart';
 
 class IdeaStreamPage extends StatefulWidget {
   final ValueChanged<int>? onNavigate;
@@ -27,6 +27,7 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
   final Map<int, String> _blockTextCache = {};
   final Map<int, int> _blockCountCache = {};
   late final Stream<List<HubPayload>> _allPayloadsStream;
+  final Set<int> _deletingIds = {}; // 防止 confirmDismiss 重复调用
 
   @override
   void initState() {
@@ -43,8 +44,9 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
 
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor:
-          isDark ? const Color(0xFF121212) : const Color(0xFFF6F6F6),
+      backgroundColor: isDark
+          ? const Color(0xFF121212)
+          : const Color(0xFFF6F6F6),
       drawer: _buildAppDrawer(context, isDark),
       body: SafeArea(
         bottom: false,
@@ -57,9 +59,10 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
               child: Text(
                 _getGreetingPhrase(),
                 style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.2),
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1.2,
+                ),
               ),
             ),
             Expanded(
@@ -68,23 +71,29 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) {
                     return const Center(
-                        child: CircularProgressIndicator(
-                            color: Color(0xFFFF6B6B)));
+                      child: CircularProgressIndicator(
+                        color: Color(0xFFFF6B6B),
+                      ),
+                    );
                   }
 
                   var items = snapshot.data!.where((item) {
                     final matchText = _blockTextCache[item.id] ?? item.rawText;
-                    final matchesSearch = _searchQuery.isEmpty ||
-                        matchText
-                            .toLowerCase()
-                            .contains(_searchQuery.toLowerCase()) ||
-                        item.intentTag
-                            .toLowerCase()
-                            .contains(_searchQuery.toLowerCase());
-                    final matchesTags = _selectedTags.isEmpty ||
-                        _selectedTags.any((tag) => item.intentTag
-                            .toLowerCase()
-                            .contains(tag.toLowerCase()));
+                    final matchesSearch =
+                        _searchQuery.isEmpty ||
+                        matchText.toLowerCase().contains(
+                          _searchQuery.toLowerCase(),
+                        ) ||
+                        item.intentTag.toLowerCase().contains(
+                          _searchQuery.toLowerCase(),
+                        );
+                    final matchesTags =
+                        _selectedTags.isEmpty ||
+                        _selectedTags.any(
+                          (tag) => item.intentTag.toLowerCase().contains(
+                            tag.toLowerCase(),
+                          ),
+                        );
                     return matchesSearch && matchesTags;
                   }).toList();
 
@@ -121,11 +130,11 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                           padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
                           gridDelegate:
                               SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: isLargeScreen ? 3 : 2,
-                            crossAxisSpacing: 14,
-                            mainAxisSpacing: 14,
-                            childAspectRatio: 1.35,
-                          ),
+                                crossAxisCount: isLargeScreen ? 3 : 2,
+                                crossAxisSpacing: 14,
+                                mainAxisSpacing: 14,
+                                childAspectRatio: 1.35,
+                              ),
                           itemCount: items.length,
                           itemBuilder: (context, index) =>
                               _buildSmartCard(items[index], theme),
@@ -154,17 +163,17 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
       {
         'icon': Icons.record_voice_over_rounded,
         'label': '会议纪要',
-        'hint': '2026年度Q3季度复盘会议...'
+        'hint': '2026年度Q3季度复盘会议...',
       },
       {
         'icon': Icons.auto_stories_rounded,
         'label': '读书笔记',
-        'hint': '《原则》第二章核心观点...'
+        'hint': '《原则》第二章核心观点...',
       },
       {
         'icon': Icons.wb_incandescent_rounded,
         'label': '灵感闪记',
-        'hint': '突然想到一个关于XXX的点子...'
+        'hint': '突然想到一个关于XXX的点子...',
       },
     ];
 
@@ -181,23 +190,31 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                 color: const Color(0xFFFF6B6B).withValues(alpha: 0.08),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.flash_on_rounded,
-                  size: 36,
-                  color: const Color(0xFFFF6B6B).withValues(alpha: 0.5)),
+              child: Icon(
+                Icons.flash_on_rounded,
+                size: 36,
+                color: const Color(0xFFFF6B6B).withValues(alpha: 0.5),
+              ),
             ),
             const SizedBox(height: 20),
-            Text('闪念已清空',
-                style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: theme.textTheme.bodyLarge?.color
-                        ?.withValues(alpha: 0.5))),
+            Text(
+              '闪念已清空',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: theme.textTheme.bodyLarge?.color?.withValues(alpha: 0.5),
+              ),
+            ),
             const SizedBox(height: 6),
-            Text('点击右下角 + 号快速收录灵感',
-                style: TextStyle(fontSize: 13, color: theme.hintColor)),
+            Text(
+              '点击右下角 + 号快速收录灵感',
+              style: TextStyle(fontSize: 13, color: theme.hintColor),
+            ),
             const SizedBox(height: 32),
-            Text('试试这些模板：',
-                style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+            Text(
+              '试试这些模板：',
+              style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+            ),
             const SizedBox(height: 14),
             ...templates.map((tpl) {
               return Padding(
@@ -210,30 +227,40 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                   child: Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(
-                        vertical: 12, horizontal: 16),
+                      vertical: 12,
+                      horizontal: 16,
+                    ),
                     decoration: BoxDecoration(
                       color: isDark
                           ? const Color(0xFF1E1E1E)
                           : const Color(0xFFF8F8F8),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                          color: theme.dividerColor.withValues(alpha: 0.06),
-                          width: 1),
+                        color: theme.dividerColor.withValues(alpha: 0.06),
+                        width: 1,
+                      ),
                     ),
                     child: Row(
                       children: [
-                        Icon(tpl['icon'] as IconData,
-                            size: 20,
-                            color:
-                                const Color(0xFFFF6B6B).withValues(alpha: 0.6)),
+                        Icon(
+                          tpl['icon'] as IconData,
+                          size: 20,
+                          color: const Color(0xFFFF6B6B).withValues(alpha: 0.6),
+                        ),
                         const SizedBox(width: 12),
-                        Text(tpl['label'] as String,
-                            style: TextStyle(
-                                fontSize: 14,
-                                color: theme.textTheme.bodyMedium?.color)),
+                        Text(
+                          tpl['label'] as String,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: theme.textTheme.bodyMedium?.color,
+                          ),
+                        ),
                         const Spacer(),
-                        Icon(Icons.arrow_forward_ios_rounded,
-                            size: 12, color: Colors.grey[600]),
+                        Icon(
+                          Icons.arrow_forward_ios_rounded,
+                          size: 12,
+                          color: Colors.grey[600],
+                        ),
                       ],
                     ),
                   ),
@@ -285,10 +312,7 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
         border: Border(
-          bottom: BorderSide(
-            color: Theme.of(context).dividerColor,
-            width: 1,
-          ),
+          bottom: BorderSide(color: Theme.of(context).dividerColor, width: 1),
         ),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -306,8 +330,9 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
             child: Container(
               height: 32,
               decoration: BoxDecoration(
-                color:
-                    isDark ? const Color(0xFF262626) : const Color(0xFFF1F3F5),
+                color: isDark
+                    ? const Color(0xFF262626)
+                    : const Color(0xFFF1F3F5),
                 borderRadius: BorderRadius.circular(8),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -321,11 +346,15 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                       onChanged: (val) => setState(() => _searchQuery = val),
                       textAlignVertical: TextAlignVertical.center,
                       style: const TextStyle(
-                          fontSize: 13, textBaseline: TextBaseline.alphabetic),
+                        fontSize: 13,
+                        textBaseline: TextBaseline.alphabetic,
+                      ),
                       decoration: InputDecoration(
                         hintText: '搜索或向 AI 提问...',
-                        hintStyle:
-                            TextStyle(color: Colors.grey[500], fontSize: 13),
+                        hintStyle: TextStyle(
+                          color: Colors.grey[500],
+                          fontSize: 13,
+                        ),
                         border: InputBorder.none,
                         isDense: true,
                         contentPadding: EdgeInsets.zero,
@@ -350,7 +379,6 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
             tooltip: '按标签筛选',
             onPressed: () => _showTagFilterDialog(isDark),
           ),
-          const SizedBox(width: 2),
           IconButton(
             icon: Icon(
               _isGridView
@@ -371,16 +399,15 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
     final hasTag = data.intentTag.isNotEmpty && data.intentTag != 'NOTE';
     final mediaPaths = _parseImagePaths(data.mediaPaths);
     final dateStr = _formatRelativeTime(data.createdAt);
-    final displayText =
-        _stripMarkdownForPreview(_blockTextCache[data.id] ?? data.rawText);
+    final displayText = _stripMarkdownForPreview(
+      _blockTextCache[data.id] ?? data.rawText,
+    );
 
     final card = GestureDetector(
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(
-            builder: (_) => IdeaDetailPage(payload: data),
-          ),
+          MaterialPageRoute(builder: (_) => IdeaDetailPage(payload: data)),
         );
       },
       child: Container(
@@ -389,7 +416,9 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
           color: theme.cardColor,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-              color: theme.dividerColor.withValues(alpha: 0.08), width: 1),
+            color: theme.dividerColor.withValues(alpha: 0.08),
+            width: 1,
+          ),
         ),
         child: Stack(
           children: [
@@ -400,29 +429,36 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   // ===== 装饰短横线：数量 = 内容块数量 =====
-                  Builder(builder: (context) {
-                    final count = (_blockCountCache[data.id] ?? 1).clamp(1, 12);
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Wrap(
-                        spacing: 5,
-                        runSpacing: 4,
-                        children: List.generate(count, (i) {
-                          return Container(
-                            width: 22,
-                            height: 2.5,
-                            decoration: BoxDecoration(
-                              color: theme.hintColor.withValues(alpha: 0.3),
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          );
-                        }),
-                      ),
-                    );
-                  }),
+                  Builder(
+                    builder: (context) {
+                      final count = (_blockCountCache[data.id] ?? 1).clamp(
+                        1,
+                        12,
+                      );
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Wrap(
+                          spacing: 5,
+                          runSpacing: 4,
+                          children: List.generate(count, (i) {
+                            return Container(
+                              width: 22,
+                              height: 2.5,
+                              decoration: BoxDecoration(
+                                color: theme.hintColor.withValues(alpha: 0.3),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            );
+                          }),
+                        ),
+                      );
+                    },
+                  ),
                   // 日期行
-                  Text(dateStr,
-                      style: TextStyle(color: theme.hintColor, fontSize: 11)),
+                  Text(
+                    dateStr,
+                    style: TextStyle(color: theme.hintColor, fontSize: 11),
+                  ),
                   const SizedBox(height: 8),
                   if (mediaPaths.isNotEmpty && !_isGridView) ...[
                     _buildImagePreview(mediaPaths),
@@ -434,9 +470,10 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                       maxLines: _isGridView ? 5 : 6,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          fontSize: 14,
-                          height: 1.45,
-                          fontWeight: FontWeight.w500),
+                        fontSize: 14,
+                        height: 1.45,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                   // ===== 标签移至底部左对齐 =====
@@ -446,7 +483,9 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                       alignment: Alignment.centerLeft,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFFF6B6B).withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(6),
@@ -454,9 +493,10 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                         child: Text(
                           data.intentTag.toUpperCase(),
                           style: const TextStyle(
-                              color: Color(0xFFFF6B6B),
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold),
+                            color: Color(0xFFFF6B6B),
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
@@ -488,26 +528,51 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
       key: Key('payload_${data.id}'),
       direction: DismissDirection.endToStart,
       confirmDismiss: (direction) async {
-        return await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('确认删除'),
-                content: Text(
-                    '确定要删除"${displayText.length > 30 ? '${displayText.substring(0, 30)}...' : displayText}"吗？'),
-                actions: [
-                  TextButton(
+        if (_deletingIds.contains(data.id)) return false;
+        _deletingIds.add(data.id);
+        try {
+          final confirmed =
+              await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('确认删除'),
+                  content: Text(
+                    '确定要删除"${displayText.length > 30 ? "${displayText.substring(0, 30)}..." : displayText}"吗？',
+                  ),
+                  actions: [
+                    TextButton(
                       onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text('取消')),
-                  TextButton(
+                      child: const Text('取消'),
+                    ),
+                    TextButton(
                       onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text('删除',
-                          style: TextStyle(color: Colors.redAccent))),
-                ],
+                      child: const Text(
+                        '删除',
+                        style: TextStyle(color: Colors.redAccent),
+                      ),
+                    ),
+                  ],
+                ),
+              ) ??
+              false;
+          if (!confirmed) return false;
+          try {
+            final deleted = await _repo.delete(data.id);
+            if (deleted > 0) return true;
+          } catch (_) {}
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('删除失败，请重试'),
+                behavior: SnackBarBehavior.floating,
               ),
-            ) ??
-            false;
+            );
+          }
+          return false;
+        } finally {
+          _deletingIds.remove(data.id);
+        }
       },
-      onDismissed: (_) => _repo.delete(data.id),
       background: Container(
         margin: const EdgeInsets.only(bottom: 0),
         decoration: BoxDecoration(
@@ -516,13 +581,13 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
         ),
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 24),
-        child: const Icon(Icons.delete_outline_rounded,
-            color: Colors.white, size: 22),
+        child: const Icon(
+          Icons.delete_outline_rounded,
+          color: Colors.white,
+          size: 22,
+        ),
       ),
-      child: Opacity(
-        opacity: alpha,
-        child: card,
-      ),
+      child: Opacity(opacity: alpha, child: card),
     );
   }
 
@@ -543,7 +608,8 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: const Center(
-                child: Icon(Icons.broken_image, color: Colors.grey)),
+              child: Icon(Icons.broken_image, color: Colors.grey),
+            ),
           ),
         ),
       );
@@ -584,11 +650,14 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Center(
-                        child: Text('+$extraCount',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold)),
+                        child: Text(
+                          '+$extraCount',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     )
                   : null,
@@ -614,7 +683,8 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
     }
 
     final yesterday = now.subtract(const Duration(days: 1));
-    final isYesterday = date.year == yesterday.year &&
+    final isYesterday =
+        date.year == yesterday.year &&
         date.month == yesterday.month &&
         date.day == yesterday.day;
     if (isYesterday) {
@@ -646,8 +716,9 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
 
   Widget _buildAppDrawer(BuildContext context, bool isDark) {
     final theme = Theme.of(context);
-    final drawerBgColor =
-        isDark ? const Color(0xFF1A1A1A) : const Color(0xFF212121);
+    final drawerBgColor = isDark
+        ? const Color(0xFF1A1A1A)
+        : const Color(0xFF212121);
 
     final menuItems = [
       {'label': '首页', 'icon': Icons.flash_on, 'selected': false},
@@ -668,10 +739,7 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
               decoration: BoxDecoration(
                 border: Border(
-                  bottom: BorderSide(
-                    color: theme.dividerColor,
-                    width: 1,
-                  ),
+                  bottom: BorderSide(color: theme.dividerColor, width: 1),
                 ),
               ),
               child: Row(
@@ -684,26 +752,33 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Center(
-                      child: Text('L',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 20,
-                              fontWeight: FontWeight.w900)),
+                      child: Text(
+                        'L',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 14),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Locus',
-                          style: TextStyle(
-                              color: isDark ? Colors.white : Colors.white70,
-                              fontSize: 17,
-                              fontWeight: FontWeight.bold)),
+                      Text(
+                        'Locus',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.white70,
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                       const SizedBox(height: 2),
-                      Text('全能型 AI 私人助理',
-                          style:
-                              TextStyle(color: Colors.grey[500], fontSize: 11)),
+                      Text(
+                        '全能型 AI 私人助理',
+                        style: TextStyle(color: Colors.grey[500], fontSize: 11),
+                      ),
                     ],
                   ),
                 ],
@@ -715,12 +790,15 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 6),
-                    child: Text('常用',
-                        style: TextStyle(
-                            color: Colors.grey[500],
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 1.0)),
+                    child: Text(
+                      '常用',
+                      style: TextStyle(
+                        color: Colors.grey[500],
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
                   ),
                   ...menuItems.asMap().entries.map((entry) {
                     final index = entry.key;
@@ -738,7 +816,8 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                       dense: true,
                       horizontalTitleGap: 12,
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                       onTap: () {
                         _scaffoldKey.currentState?.closeDrawer();
                         widget.onNavigate?.call(index);
@@ -748,23 +827,40 @@ class _IdeaStreamPageState extends State<IdeaStreamPage> {
                   const SizedBox(height: 16),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 6),
-                    child: Text('更多',
-                        style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 1.0)),
+                    child: Text(
+                      '更多',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
                   ),
-                  // TODO: 后续在此添加更多功能入口
                   ListTile(
-                    leading: Icon(Icons.more_horiz,
-                        color: Colors.grey[600], size: 20),
-                    title: Text('即将上线...',
-                        style:
-                            TextStyle(color: Colors.grey[600], fontSize: 13)),
+                    leading: Icon(
+                      Icons.label_outline,
+                      color: Colors.grey[400],
+                      size: 20,
+                    ),
+                    title: Text(
+                      '标签浏览',
+                      style: TextStyle(color: Colors.grey[300], fontSize: 14),
+                    ),
                     dense: true,
                     horizontalTitleGap: 12,
-                    enabled: false,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    onTap: () {
+                      _scaffoldKey.currentState?.closeDrawer();
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const TagBrowserPage(),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -856,8 +952,9 @@ class _TagFilterDialogState extends State<_TagFilterDialog> {
           ..sort((a, b) => b.value.compareTo(a.value));
 
         return AlertDialog(
-          backgroundColor:
-              widget.isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          backgroundColor: widget.isDark
+              ? const Color(0xFF1E1E1E)
+              : Colors.white,
           title: Row(
             children: [
               const Text('按标签筛选', style: TextStyle(fontSize: 16)),
@@ -869,8 +966,10 @@ class _TagFilterDialogState extends State<_TagFilterDialog> {
                     widget.onSelectionChanged(result);
                     Navigator.pop(context);
                   },
-                  child: const Text('清除',
-                      style: TextStyle(fontSize: 13, color: Color(0xFFFF6B6B))),
+                  child: const Text(
+                    '清除',
+                    style: TextStyle(fontSize: 13, color: Color(0xFFFF6B6B)),
+                  ),
                 ),
             ],
           ),
@@ -880,27 +979,34 @@ class _TagFilterDialogState extends State<_TagFilterDialog> {
                 ? const Padding(
                     padding: EdgeInsets.symmetric(vertical: 20),
                     child: Center(
-                        child:
-                            Text('暂无标签', style: TextStyle(color: Colors.grey))),
+                      child: Text('暂无标签', style: TextStyle(color: Colors.grey)),
+                    ),
                   )
                 : Column(
                     mainAxisSize: MainAxisSize.min,
                     children: sortedTags.map((entry) {
                       final tag = entry.key;
                       final count = entry.value;
-                      final displayTag =
-                          tag.startsWith('#') ? tag.substring(1) : tag;
+                      final displayTag = tag.startsWith('#')
+                          ? tag.substring(1)
+                          : tag;
                       final isChecked = _selected.contains(tag);
 
                       return CheckboxListTile(
                         value: isChecked,
                         dense: true,
                         contentPadding: EdgeInsets.zero,
-                        title: Text(displayTag,
-                            style: const TextStyle(fontSize: 14)),
-                        subtitle: Text('$count 条记录',
-                            style: TextStyle(
-                                fontSize: 11, color: Colors.grey[600])),
+                        title: Text(
+                          displayTag,
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                        subtitle: Text(
+                          '$count 条记录',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[600],
+                          ),
+                        ),
                         activeColor: const Color(0xFFFF6B6B),
                         onChanged: (val) {
                           setState(() {
@@ -926,9 +1032,12 @@ class _TagFilterDialogState extends State<_TagFilterDialog> {
                 Navigator.pop(context);
               },
               style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFFF6B6B)),
-              child: const Text('确定',
-                  style: TextStyle(fontSize: 13, color: Colors.white)),
+                backgroundColor: const Color(0xFFFF6B6B),
+              ),
+              child: const Text(
+                '确定',
+                style: TextStyle(fontSize: 13, color: Colors.white),
+              ),
             ),
           ],
         );

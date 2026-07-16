@@ -3,12 +3,15 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  audioplayers_windows
   file_selector_windows
+  flutter_secure_storage_windows
   sqlcipher_flutter_libs
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
   jni
+  zvec
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

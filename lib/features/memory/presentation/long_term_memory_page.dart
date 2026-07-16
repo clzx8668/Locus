@@ -8,8 +8,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../core/di/service_locator.dart';
-import '../../../core/database/database.dart';
 import '../../../core/utils/doc_parser.dart';
+import '../data/memory_repository.dart';
 
 class LongTermMemoryPage extends StatelessWidget {
   const LongTermMemoryPage({super.key});
@@ -57,9 +57,9 @@ class LongTermMemoryPage extends StatelessWidget {
 
 class _MemoryRulesView extends StatelessWidget {
   final bool isDark;
-  const _MemoryRulesView({required this.isDark});
+  _MemoryRulesView({required this.isDark});
 
-  AppDatabase get db => getIt<AppDatabase>();
+  final MemoryRepository _repo = getIt<MemoryRepository>();
 
   void _showMemoryDialog(
       BuildContext context, {
@@ -95,9 +95,9 @@ class _MemoryRulesView extends StatelessWidget {
               final content = controller.text.trim();
               if (content.isNotEmpty) {
                 if (existingMemory == null) {
-                  db.addMemory(content);
+                  _repo.addMemory(content);
                 } else {
-                  db.updateMemory(existingMemory.id, content);
+                  _repo.updateMemory(existingMemory.id, content);
                 }
                 Navigator.pop(ctx);
               }
@@ -124,7 +124,7 @@ class _MemoryRulesView extends StatelessWidget {
         child: const Icon(Icons.add, color: Colors.white),
       ),
       body: StreamBuilder<List<LongTermMemory>>(
-        stream: db.watchAllMemories(),
+        stream: _repo.watchAllMemories(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -179,8 +179,7 @@ class _MemoryRulesView extends StatelessWidget {
                       IconButton(
                         icon: const Icon(Icons.delete_outline,
                             color: Colors.redAccent),
-                        onPressed: () =>
-                            db.deleteMemory(memory.id),
+                        onPressed: () => _repo.deleteMemory(memory.id),
                       ),
                     ],
                   ),
@@ -198,7 +197,7 @@ class _MemoryRulesView extends StatelessWidget {
 
 class _KnowledgeBaseView extends StatefulWidget {
   final bool isDark;
-  const _KnowledgeBaseView({required this.isDark});
+  _KnowledgeBaseView({required this.isDark});
 
   @override
   State<_KnowledgeBaseView> createState() => _KnowledgeBaseViewState();
@@ -208,7 +207,7 @@ class _KnowledgeBaseViewState extends State<_KnowledgeBaseView> {
   bool _isUploading = false;
   int? _parsingFileId;
 
-  AppDatabase get db => getIt<AppDatabase>();
+  final MemoryRepository _repo = getIt<MemoryRepository>();
 
   String _formatFileSize(int bytes) {
     if (bytes <= 0) return "0 B";
@@ -330,7 +329,7 @@ class _KnowledgeBaseViewState extends State<_KnowledgeBaseView> {
       final originalFile = File(selectedFile.path!);
       await originalFile.copy(targetPath);
 
-      final fileId = await db.addFile(
+      final fileId = await _repo.addFile(
         name: selectedFile.name,
         localPath: targetPath,
         size: selectedFile.size,
@@ -338,7 +337,7 @@ class _KnowledgeBaseViewState extends State<_KnowledgeBaseView> {
       );
 
       if (selectedFile.extension?.toLowerCase() == 'pdf') {
-        db.processFileForRAG(fileId, targetPath);
+        _repo.processFileForRag(fileId, targetPath);
       }
 
       if (mounted) {
@@ -360,7 +359,7 @@ class _KnowledgeBaseViewState extends State<_KnowledgeBaseView> {
   }
 
   void _deleteFile(KnowledgeFile file) async {
-    await db.deleteFile(file.id);
+    await _repo.deleteFile(file.id);
 
     try {
       final physicalFile = File(file.localPath);
@@ -395,7 +394,7 @@ class _KnowledgeBaseViewState extends State<_KnowledgeBaseView> {
                   style: TextStyle(color: Colors.white)),
             ),
       body: StreamBuilder<List<KnowledgeFile>>(
-        stream: db.watchAllFiles(),
+        stream: _repo.watchAllFiles(),
         builder: (context, snapshot) {
           if (snapshot.connectionState ==
               ConnectionState.waiting) {
@@ -532,8 +531,7 @@ class _KnowledgeBaseViewState extends State<_KnowledgeBaseView> {
                         Switch(
                           value: file.isActive,
                           onChanged: (newValue) {
-                            db.toggleFileActive(
-                                file.id, newValue);
+                            _repo.toggleFileActive(file.id, newValue);
                           },
                           activeTrackColor: Colors.green
                               .withValues(alpha: 0.3),

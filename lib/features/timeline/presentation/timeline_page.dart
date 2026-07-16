@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:drift/drift.dart' as d;
 import 'package:image_picker/image_picker.dart';
 import '../../../core/di/service_locator.dart';
-import '../../../core/database/database.dart';
+import '../../../core/services/processing_pipeline.dart';
 import '../../../core/utils/intent_router.dart';
 import '../../idea_stream/data/idea_repository.dart';
 
@@ -17,8 +17,9 @@ class TimelinePage extends StatefulWidget {
 
 class _TimelinePageState extends State<TimelinePage> {
   final _repo = getIt<IdeaRepository>();
+  final _pipeline = getIt<ProcessingPipeline>();
   final TextEditingController _textController = TextEditingController();
-  
+
   // 核心状态：暂存当前准备发送的图片路径
   final List<String> _pendingMediaPaths = [];
   final ImagePicker _picker = ImagePicker();
@@ -93,8 +94,9 @@ class _TimelinePageState extends State<TimelinePage> {
       mediaPaths: d.Value(mediaJson),
     );
 
-    await _repo.insert(entry);
-    
+    final payloadId = await _repo.insert(entry);
+    _pipeline.enqueue(payloadId);
+
     // 清理现场
     setState(() {
       _textController.clear();
@@ -122,24 +124,25 @@ class _TimelinePageState extends State<TimelinePage> {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                
+
                 final payloads = snapshot.data ?? [];
-                
+
                 if (payloads.isEmpty) {
                   return const Center(
-                    child: Text('轨迹为空\n开始记录你的第一个图文闪念吧', 
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey)),
+                    child: Text('轨迹为空\n开始记录你的第一个图文闪念吧',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey)),
                   );
                 }
 
                 return ListView.builder(
                   reverse: true,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   itemCount: payloads.length,
                   itemBuilder: (context, index) {
                     final item = payloads[index];
-                    
+
                     // 解析数据库中的 JSON 图片路径
                     List<String> imagePaths = [];
                     try {
@@ -162,37 +165,45 @@ class _TimelinePageState extends State<TimelinePage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
                                 color: Colors.blueGrey.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 item.intentTag,
-                                style: const TextStyle(fontSize: 12, color: Colors.blueGrey),
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.blueGrey),
                               ),
                             ),
                             const SizedBox(height: 8),
-                            
+
                             // 渲染文本（如果有）
                             if (item.rawText.isNotEmpty)
-                              Text(item.rawText, style: const TextStyle(fontSize: 16, height: 1.4)),
-                            
+                              Text(item.rawText,
+                                  style: const TextStyle(
+                                      fontSize: 16, height: 1.4)),
+
                             // 渲染图片（如果有）
                             if (imagePaths.isNotEmpty) ...[
-                              if (item.rawText.isNotEmpty) const SizedBox(height: 12),
+                              if (item.rawText.isNotEmpty)
+                                const SizedBox(height: 12),
                               Wrap(
                                 spacing: 8,
                                 runSpacing: 8,
-                                children: imagePaths.map((path) => ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.file(
-                                    File(path),
-                                    width: 100,
-                                    height: 100,
-                                    fit: BoxFit.cover,
-                                  ),
-                                )).toList(),
+                                children: imagePaths
+                                    .map((path) => ClipRRect(
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                          child: Image.file(
+                                            File(path),
+                                            width: 100,
+                                            height: 100,
+                                            fit: BoxFit.cover,
+                                          ),
+                                        ))
+                                    .toList(),
                               )
                             ]
                           ],
@@ -204,14 +215,17 @@ class _TimelinePageState extends State<TimelinePage> {
               },
             ),
           ),
-          
+
           // 2. 下半部分：极速输入框与预览区
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
               color: Colors.white,
               boxShadow: [
-                BoxShadow(color: Colors.black.withValues(alpha: 0.05), offset: const Offset(0, -2), blurRadius: 10)
+                BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    offset: const Offset(0, -2),
+                    blurRadius: 10)
               ],
             ),
             child: SafeArea(
@@ -231,13 +245,15 @@ class _TimelinePageState extends State<TimelinePage> {
                             clipBehavior: Clip.none,
                             children: [
                               Container(
-                                margin: const EdgeInsets.only(right: 12, top: 8),
+                                margin:
+                                    const EdgeInsets.only(right: 12, top: 8),
                                 width: 60,
                                 height: 60,
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(8),
                                   image: DecorationImage(
-                                    image: FileImage(File(_pendingMediaPaths[index])),
+                                    image: FileImage(
+                                        File(_pendingMediaPaths[index])),
                                     fit: BoxFit.cover,
                                   ),
                                 ),
@@ -253,7 +269,8 @@ class _TimelinePageState extends State<TimelinePage> {
                                       color: Colors.redAccent,
                                       shape: BoxShape.circle,
                                     ),
-                                    child: const Icon(Icons.close, size: 14, color: Colors.white),
+                                    child: const Icon(Icons.close,
+                                        size: 14, color: Colors.white),
                                   ),
                                 ),
                               )
@@ -262,12 +279,13 @@ class _TimelinePageState extends State<TimelinePage> {
                         },
                       ),
                     ),
-                  
+
                   // 输入控制台
                   Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.add_photo_alternate_outlined, color: Colors.blueGrey, size: 28),
+                        icon: const Icon(Icons.add_photo_alternate_outlined,
+                            color: Colors.blueGrey, size: 28),
                         onPressed: _showMediaActionSheet,
                       ),
                       const SizedBox(width: 8),
@@ -287,7 +305,8 @@ class _TimelinePageState extends State<TimelinePage> {
                             ),
                             filled: true,
                             fillColor: Colors.grey[100],
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 10),
                           ),
                         ),
                       ),

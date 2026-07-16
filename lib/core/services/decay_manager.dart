@@ -1,5 +1,6 @@
 import 'dart:async';
 import '../../../core/database/database.dart';
+import '../enums/processing_status.dart';
 
 /// 废话衰减管理器 —— 管理标记为"日常废话"的内容生命周期
 class DecayManager {
@@ -29,7 +30,11 @@ class DecayManager {
       // 查找所有标记为废话且未折叠的条目，在 Dart 端过滤过期时间
       final allEphemeral = await (_db.select(_db.hubPayloads)
             ..where((t) => t.isEphemeral.equals(true))
-            ..where((t) => t.processingStatus.equals('dispatched')))
+            ..where(
+              (t) => t.processingStatus.equals(
+                ProcessingStatus.dispatched.toDbValue(),
+              ),
+            ))
           .get();
 
       final expired = allEphemeral.where((item) {
@@ -38,7 +43,10 @@ class DecayManager {
 
       for (final item in expired) {
         // 标记为已折叠（通过将 processingStatus 改为特殊值，UI 层据此隐藏）
-        await _db.updateProcessingStatus(item.id, 'decayed');
+        await _db.updateProcessingStatus(
+          item.id,
+          ProcessingStatus.decayed.toDbValue(),
+        );
       }
     } catch (_) {
       // 静默处理，不影响主流程
