@@ -64,6 +64,7 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   final ScrollController _scrollController = ScrollController();
 
   final Set<int> _expandedTags = {}; // 标签展开状态
+  final Set<int> _expandedInboxSecondaryInfo = {}; // 收件箱次级信息展开状态
 
   /// 处理状态横幅
   bool _showStatusBanner = true;
@@ -365,6 +366,196 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     );
   }
 
+  Widget _buildInboxStatusChip(
+    ThemeData theme,
+    bool isConfirmed,
+    bool isRejected,
+  ) {
+    final color = isConfirmed
+        ? Colors.green
+        : isRejected
+        ? theme.colorScheme.error
+        : Colors.amber;
+    final label = isConfirmed
+        ? '已确认'
+        : isRejected
+        ? '已拒绝'
+        : '待确认';
+    final icon = isConfirmed
+        ? Icons.check_circle_rounded
+        : isRejected
+        ? Icons.cancel_rounded
+        : Icons.schedule_rounded;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _intentDisplayTitle(String intentTag) {
+    switch (intentTag) {
+      case 'TODO':
+        return '待办事项';
+      case 'CRM':
+        return '客户信息';
+      case 'LEDGER':
+        return '记账记录';
+      default:
+        return '识别结果';
+    }
+  }
+
+  String _buildInboxSubtitle({
+    required bool isConfirmed,
+    required bool isRejected,
+    required int missingCount,
+    required bool hasSecondaryInfo,
+  }) {
+    if (isRejected) {
+      return '该识别结果已被拒绝，可编辑后重新规则化';
+    }
+    if (isConfirmed) {
+      return hasSecondaryInfo ? '已完成确认，可在更多信息中查看分发结果' : '已完成确认';
+    }
+    if (missingCount > 0) {
+      return '待补充 $missingCount 项关键信息后确认';
+    }
+    return hasSecondaryInfo ? '识别完成，可继续核对并按需补充信息' : '识别完成，可直接确认分发';
+  }
+
+  Widget _buildInboxBottomBar(
+    ThemeData theme,
+    DispatchInboxData inbox, {
+    required bool isConfirmed,
+    required bool isRejected,
+    required bool confirmDisabled,
+    required bool hasSecondaryInfo,
+  }) {
+    final isExpanded = _expandedInboxSecondaryInfo.contains(inbox.id);
+    final actions = isRejected
+        ? _buildInboxActions(inbox)
+        : isConfirmed
+        ? _buildConfirmedActionIcons(inbox, theme)
+        : _buildPendingActionIcons(inbox, confirmDisabled, theme);
+
+    return Row(
+      children: [
+        if (hasSecondaryInfo)
+          InkWell(
+            onTap: () {
+              setState(() {
+                if (isExpanded) {
+                  _expandedInboxSecondaryInfo.remove(inbox.id);
+                } else {
+                  _expandedInboxSecondaryInfo.add(inbox.id);
+                }
+              });
+            },
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    isExpanded ? '收起信息' : '更多信息',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.68,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    isExpanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    size: 16,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.48),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        const Spacer(),
+        actions,
+      ],
+    );
+  }
+
+  Widget _buildInboxSecondarySection(
+    ThemeData theme,
+    DispatchInboxData inbox, {
+    required bool isConfirmed,
+    required bool isRejected,
+    required bool hasMissing,
+    required List<String> missingKeys,
+    required List<String> availableTargets,
+    required String intentTag,
+    String? dispatchedRef,
+  }) {
+    final expanded = _expandedInboxSecondaryInfo.contains(inbox.id);
+    final shouldShowLink =
+        isConfirmed && dispatchedRef != null && dispatchedRef.isNotEmpty;
+    final shouldShowSyncTargets = !isConfirmed && availableTargets.isNotEmpty;
+    final shouldShowMissing = !isConfirmed && !isRejected && hasMissing;
+    final hasContent =
+        shouldShowLink || shouldShowSyncTargets || shouldShowMissing;
+
+    if (!hasContent || !expanded) {
+      return const SizedBox.shrink();
+    }
+
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      child: Container(
+        margin: const EdgeInsets.only(top: 10),
+        padding: const EdgeInsets.only(top: 10),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.08)),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (shouldShowMissing)
+              _buildMissingFieldsBanner(theme, missingKeys),
+            if (shouldShowMissing && (shouldShowSyncTargets || shouldShowLink))
+              const SizedBox(height: 8),
+            if (shouldShowSyncTargets)
+              _buildSyncTargetsCheckboxes(theme, availableTargets, intentTag),
+            if (shouldShowSyncTargets && shouldShowLink)
+              const SizedBox(height: 8),
+            if (shouldShowLink) _buildInboxDispatchedLinkRow(dispatchedRef),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// AI 收件箱审核卡片 —— 内嵌在详情页 AI 对话区下方
   /// v14: 中文字段标签、手动编辑、缺键补录、多目的地同步
   Widget _buildDispatchInboxCard(
@@ -385,15 +576,29 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
 
     // 可选同步目标（排除主目标本身）
     final availableTargets = _getAvailableSyncTargets(intentTag);
+    final hasDispatchedRef =
+        isConfirmed && dispatchedRef != null && dispatchedRef.isNotEmpty;
+    final hasSecondaryInfo =
+        (!isConfirmed && !isRejected && hasMissing) ||
+        (!isConfirmed && availableTargets.isNotEmpty) ||
+        hasDispatchedRef;
+    final effectiveEntities = _getEffectiveEntities(inbox.id, entities);
+    final title = _intentDisplayTitle(intentTag);
+    final subtitle = _buildInboxSubtitle(
+      isConfirmed: isConfirmed,
+      isRejected: isRejected,
+      missingCount: currentMissing.length,
+      hasSecondaryInfo: hasSecondaryInfo,
+    );
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFFBFBFB),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: theme.dividerColor.withValues(alpha: 0.06),
+          color: theme.dividerColor.withValues(alpha: 0.03),
           width: 1,
         ),
       ),
@@ -401,90 +606,84 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 标题行
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                width: 34,
+                height: 34,
                 decoration: BoxDecoration(
                   color: _intentColor(intentTag).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                child: Icon(
+                  _intentIcon(intentTag),
+                  size: 18,
+                  color: _intentColor(intentTag),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      _intentIcon(intentTag),
-                      size: 14,
-                      color: _intentColor(intentTag),
-                    ),
-                    const SizedBox(width: 4),
                     Text(
-                      'AI 识别 → $intentTag${isConfirmed
-                          ? " (已确认)"
-                          : isRejected
-                          ? " (已拒绝)"
-                          : ""}',
+                      title,
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 15,
                         fontWeight: FontWeight.w600,
-                        color: _intentColor(intentTag),
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.35,
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.58,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
-              const Spacer(),
-              if (isConfirmed)
-                Icon(Icons.check_circle, size: 16, color: Colors.green[400])
-              else if (isRejected)
-                const Icon(Icons.cancel, size: 16, color: Colors.redAccent)
-              else
-                const Icon(
-                  Icons.pending_outlined,
-                  size: 16,
-                  color: Colors.amber,
-                ),
+              const SizedBox(width: 8),
+              _buildInboxStatusChip(theme, isConfirmed, isRejected),
             ],
           ),
-          // 缺键警告横幅
-          if (!isConfirmed && !isRejected && hasMissing) ...[
-            const SizedBox(height: 8),
-            _buildMissingFieldsBanner(theme, missingKeys),
-          ],
-          const SizedBox(height: 8),
-          // AI 抽取字段 —— 可点击编辑；pending 状态时将操作图标并入字段底部行
-          if (entities.isNotEmpty)
+          const SizedBox(height: 12),
+          if (effectiveEntities.isNotEmpty)
             _buildInboxFields(
               theme,
               isDark,
-              entities,
+              effectiveEntities,
               intentTag,
-              false,
+              isConfirmed,
               inbox.id,
-              trailingActions: isConfirmed
-                  ? _buildConfirmedActionIcons(inbox, theme)
-                  : isRejected
-                  ? null
-                  : _buildPendingActionIcons(inbox, confirmDisabled, theme),
+              trailingActions: null,
             ),
-          // 已确认且有分发引用时显示链接
-          if (isConfirmed &&
-              dispatchedRef != null &&
-              dispatchedRef.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            _buildInboxDispatchedLinkRow(dispatchedRef),
-          ],
-          // 多目的地勾选区域（未确认时显示）
-          if (!isConfirmed && availableTargets.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            _buildSyncTargetsCheckboxes(theme, availableTargets, intentTag),
-          ],
-          // 操作按钮：pending/已确认的图标按钮已并入字段区域，此处仅渲染已拒绝的按钮
-          if (isRejected) ...[
-            const SizedBox(height: 8),
-            _buildInboxActions(inbox),
-          ],
+          if (effectiveEntities.isNotEmpty) const SizedBox(height: 10),
+          _buildInboxBottomBar(
+            theme,
+            inbox,
+            isConfirmed: isConfirmed,
+            isRejected: isRejected,
+            confirmDisabled: confirmDisabled,
+            hasSecondaryInfo: hasSecondaryInfo,
+          ),
+          _buildInboxSecondarySection(
+            theme,
+            inbox,
+            isConfirmed: isConfirmed,
+            isRejected: isRejected,
+            hasMissing: hasMissing,
+            missingKeys: missingKeys,
+            availableTargets: availableTargets,
+            intentTag: intentTag,
+            dispatchedRef: dispatchedRef,
+          ),
         ],
       ),
     );
@@ -534,11 +733,10 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     final labels = missingKeys.join('、');
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.amber.withValues(alpha: 0.1),
+        color: Colors.amber.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
@@ -551,7 +749,11 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
           Expanded(
             child: Text(
               '缺少关键信息：$labels',
-              style: const TextStyle(fontSize: 12, color: Color(0xFFB8860B)),
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.3,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+              ),
             ),
           ),
         ],
@@ -598,11 +800,9 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
     return StatefulBuilder(
       builder: (context, setLocalState) {
         return Container(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest.withValues(
-              alpha: 0.3,
-            ),
+            color: theme.colorScheme.surface.withValues(alpha: 0.35),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
@@ -611,7 +811,10 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
             children: [
               Text(
                 '同时写入',
-                style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+                ),
               ),
               const SizedBox(height: 4),
               Wrap(
@@ -640,13 +843,8 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
                       decoration: BoxDecoration(
                         color: isChecked
                             ? const Color(0xFFFF6B6B).withValues(alpha: 0.12)
-                            : Colors.transparent,
+                            : theme.colorScheme.surface.withValues(alpha: 0.25),
                         borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: isChecked
-                              ? const Color(0xFFFF6B6B).withValues(alpha: 0.3)
-                              : Colors.grey.withValues(alpha: 0.3),
-                        ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -760,22 +958,15 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
   }
 
   Widget _buildInboxActions(DispatchInboxData inbox) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        // 已拒绝：编辑后重新规则化
-        OutlinedButton.icon(
-          onPressed: () => _reOpenAndRetry(inbox),
-          icon: const Icon(Icons.refresh, size: 16),
-          label: const Text('编辑后重新规则化', style: TextStyle(fontSize: 12)),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            visualDensity: VisualDensity.compact,
-            foregroundColor: const Color(0xFFFF6B6B),
-            side: const BorderSide(color: Color(0xFFFF6B6B)),
-          ),
-        ),
-      ],
+    return TextButton.icon(
+      onPressed: () => _reOpenAndRetry(inbox),
+      icon: const Icon(Icons.refresh, size: 16),
+      label: const Text('重新规则化', style: TextStyle(fontSize: 12)),
+      style: TextButton.styleFrom(
+        foregroundColor: const Color(0xFFFF6B6B),
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      ),
     );
   }
 
@@ -2275,27 +2466,39 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
         label = '查看关联记录';
     }
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.blue.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.link_rounded, size: 14, color: Colors.blue[400]),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.blue[400],
-              decoration: TextDecoration.underline,
-            ),
+    return InkWell(
+      onTap: () {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$label — 详情页开发中'),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
           ),
-          const Spacer(),
-          Icon(Icons.chevron_right_rounded, size: 16, color: Colors.grey[500]),
-        ],
+        );
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
+        child: Row(
+          children: [
+            Icon(Icons.link_rounded, size: 14, color: Colors.blue[400]),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.blue[400],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const Spacer(),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 16,
+              color: Colors.grey[500],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -3384,173 +3587,521 @@ class _InboxFieldList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // 渲染意图对应的全部已知字段（含空值字段）
     final allKeys = FieldLabels.fieldKeys(intentTag);
     if (allKeys.isEmpty) {
-      // 兜底：无已知字段时回退到只渲染已有字段
       final displayable = entities.entries
           .where((e) => e.value != null && e.value.toString().isNotEmpty)
           .toList();
       if (displayable.isEmpty) return const SizedBox.shrink();
-      return _buildFieldWrap(displayable, theme, entities);
+      return _buildIntentLayout(
+        context,
+        displayable,
+        theme,
+        true,
+        trailingActions,
+      );
     }
 
-    // 构建完整字段列表（包含空值）
     final entries = <MapEntry<String, dynamic>>[];
     for (final key in allKeys) {
       final value = entities[key];
       entries.add(MapEntry(key, value));
     }
 
-    return _buildFieldWrap(entries, theme, entities);
+    return _buildIntentLayout(context, entries, theme, false, trailingActions);
   }
 
-  Widget _buildFieldWrap(
+  Widget _buildIntentLayout(
+    BuildContext context,
     List<MapEntry<String, dynamic>> entries,
     ThemeData theme,
-    Map<String, dynamic> entities,
+    bool showAll,
+    Widget? trailingActions,
   ) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 600;
-
-        if (!isMobile) {
-          return _buildPcLayout(entries, theme, entities, trailingActions);
-        } else {
-          return _buildMobileLayout(
-            context,
-            entries,
-            theme,
-            entities,
-            trailingActions,
-          );
+        switch (intentTag) {
+          case 'TODO':
+            return _buildTodoLayout(
+              context,
+              entries,
+              theme,
+              isMobile,
+              showAll,
+              trailingActions,
+            );
+          case 'CRM':
+            return _buildCrmLayout(
+              context,
+              entries,
+              theme,
+              isMobile,
+              showAll,
+              trailingActions,
+            );
+          case 'LEDGER':
+            return _buildLedgerLayout(
+              context,
+              entries,
+              theme,
+              isMobile,
+              showAll,
+              trailingActions,
+            );
+          default:
+            return _buildFallbackLayout(
+              context,
+              entries,
+              theme,
+              isMobile,
+              showAll,
+              trailingActions,
+            );
         }
       },
     );
   }
 
-  Widget _buildPcLayout(
+  Widget _buildTodoLayout(
+    BuildContext context,
     List<MapEntry<String, dynamic>> entries,
     ThemeData theme,
-    Map<String, dynamic> entities,
+    bool isMobile,
+    bool showAll,
     Widget? trailingActions,
   ) {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: entries.map((e) {
-              final label = FieldLabels.label(intentTag, e.key);
-              final hasValue = e.value != null && e.value.toString().isNotEmpty;
-              final value = hasValue ? e.value.toString() : '未识别';
-              return _InboxFieldChip(
-                label: label,
-                keyName: e.key,
-                value: value,
-                isEmpty: !hasValue,
-                isConfirmed: isConfirmed,
-                onEdit: (newValue) => onFieldEdited(e.key, newValue),
-                isMobile: false,
-              );
-            }).toList(),
-          ),
-          if (trailingActions != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: trailingActions,
+    final orderedKeys = [
+      'title',
+      'due_date',
+      'priority',
+      'assignee',
+      'notes',
+      'description',
+    ];
+    final orderedEntries = <MapEntry<String, dynamic>>[];
+    for (final key in orderedKeys) {
+      final match = entries.where((e) => e.key == key);
+      if (match.isNotEmpty) orderedEntries.add(match.first);
+    }
+
+    final visibleEntries = showAll
+        ? orderedEntries
+        : (isMobile ? orderedEntries.take(4).toList() : orderedEntries);
+    final hasMore = !showAll && orderedEntries.length > visibleEntries.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ...visibleEntries.map((e) {
+          final value = _displayValue(e);
+          final icon = _todoFieldIcon(e.key);
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: InkWell(
+              onTap: () => _editEntry(context, e),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: e.key == 'title' ? 22 : 20,
+                      height: e.key == 'title' ? 22 : 20,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.05,
+                        ),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Icon(
+                        icon,
+                        size: e.key == 'title' ? 13 : 12,
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.62,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: 46,
+                      child: Text(
+                        _todoFieldTitle(e.key),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.46,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        value,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: e.key == 'title' ? 15 : 13,
+                          height: 1.3,
+                          fontWeight: e.key == 'title'
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                          fontStyle: _isEmpty(e) ? FontStyle.italic : null,
+                          color: _isEmpty(e)
+                              ? theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.34,
+                                )
+                              : theme.colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
+          );
+        }),
+        _buildFooter(context, theme, orderedEntries, hasMore, trailingActions),
+      ],
+    );
+  }
+
+  Widget _buildCrmLayout(
+    BuildContext context,
+    List<MapEntry<String, dynamic>> entries,
+    ThemeData theme,
+    bool isMobile,
+    bool showAll,
+    Widget? trailingActions,
+  ) {
+    const orderedKeys = [
+      'person_name',
+      'company',
+      'contact',
+      'phone',
+      'email',
+      'address',
+      'notes',
+      'description',
+    ];
+    final orderedEntries = _sortEntries(entries, orderedKeys);
+    final visibleEntries = showAll
+        ? orderedEntries
+        : (isMobile ? orderedEntries.take(5).toList() : orderedEntries);
+    final hasMore = !showAll && orderedEntries.length > visibleEntries.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (!isMobile)
+          ..._buildCrmDesktopRows(visibleEntries, theme)
+        else
+          ...visibleEntries.map(
+            (e) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _buildFieldItem(e, theme, false, false),
+            ),
+          ),
+        _buildFooter(context, theme, orderedEntries, hasMore, trailingActions),
+      ],
+    );
+  }
+
+  List<Widget> _buildCrmDesktopRows(
+    List<MapEntry<String, dynamic>> entries,
+    ThemeData theme,
+  ) {
+    final rows = <Widget>[];
+    for (var i = 0; i < entries.length; i += 2) {
+      final left = entries[i];
+      final right = i + 1 < entries.length ? entries[i + 1] : null;
+      rows.add(
+        Padding(
+          padding: EdgeInsets.only(
+            bottom: right != null || i < entries.length - 2 ? 10 : 0,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _buildFieldItem(left, theme, false, false)),
+              const SizedBox(width: 16),
+              Expanded(
+                child: right != null
+                    ? _buildFieldItem(right, theme, false, false)
+                    : const SizedBox.shrink(),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return rows;
+  }
+
+  Widget _buildLedgerLayout(
+    BuildContext context,
+    List<MapEntry<String, dynamic>> entries,
+    ThemeData theme,
+    bool isMobile,
+    bool showAll,
+    Widget? trailingActions,
+  ) {
+    final amount = _valueFor(entries, 'amount');
+    final category = _valueFor(entries, 'ledger_category');
+    final type = _valueFor(entries, 'type');
+    final orderedKeys = ['date', 'description', 'notes'];
+    final detailEntries = _sortEntries(
+      entries.where((e) => orderedKeys.contains(e.key)).toList(),
+      orderedKeys,
+    );
+    final visibleEntries = showAll
+        ? detailEntries
+        : (isMobile ? detailEntries.take(3).toList() : detailEntries);
+    final hasMore = !showAll && detailEntries.length > visibleEntries.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: () =>
+              _editEntry(context, entries.firstWhere((e) => e.key == 'amount')),
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 56,
+                  child: Text(
+                    '金额',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.46,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  amount,
+                  style: TextStyle(
+                    fontSize: isMobile ? 22 : 24,
+                    fontWeight: FontWeight.w700,
+                    color: _isValueEmpty(amount)
+                        ? theme.colorScheme.onSurface.withValues(alpha: 0.34)
+                        : theme.colorScheme.onSurface,
+                    fontStyle: _isValueEmpty(amount) ? FontStyle.italic : null,
+                  ),
+                ),
+                if (!_isValueEmpty(category) || !_isValueEmpty(type)) ...[
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      [
+                        if (!_isValueEmpty(type)) type,
+                        if (!_isValueEmpty(category)) category,
+                      ].join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.56,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        if (visibleEntries.isNotEmpty) const SizedBox(height: 10),
+        ...visibleEntries.map(
+          (e) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _buildFieldItem(e, theme, true, true),
+          ),
+        ),
+        _buildFooter(context, theme, entries, hasMore, trailingActions),
+      ],
+    );
+  }
+
+  Widget _buildFallbackLayout(
+    BuildContext context,
+    List<MapEntry<String, dynamic>> entries,
+    ThemeData theme,
+    bool isMobile,
+    bool showAll,
+    Widget? trailingActions,
+  ) {
+    final visibleEntries = showAll
+        ? entries
+        : (isMobile ? entries.take(4).toList() : entries);
+    final hasMore = !showAll && entries.length > visibleEntries.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ...visibleEntries.map(
+          (e) => Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _buildFieldItem(e, theme, false, false),
+          ),
+        ),
+        _buildFooter(context, theme, entries, hasMore, trailingActions),
+      ],
+    );
+  }
+
+  Widget _buildFieldItem(
+    MapEntry<String, dynamic> entry,
+    ThemeData theme,
+    bool dense,
+    bool compactLabel,
+  ) {
+    return _InboxFieldChip(
+      label: FieldLabels.label(intentTag, entry.key),
+      keyName: entry.key,
+      value: _displayValue(entry),
+      isEmpty: _isEmpty(entry),
+      isConfirmed: isConfirmed,
+      onEdit: (newValue) => onFieldEdited(entry.key, newValue),
+      isMobile: dense,
+      compactLabel: compactLabel,
+    );
+  }
+
+  Widget _buildFooter(
+    BuildContext context,
+    ThemeData theme,
+    List<MapEntry<String, dynamic>> allEntries,
+    bool hasMore,
+    Widget? trailingActions,
+  ) {
+    if (!hasMore && trailingActions == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: Row(
+        children: [
+          if (hasMore)
+            InkWell(
+              onTap: () => _showAllFieldsSheet(context, allEntries, theme),
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(
+                  '查看全部 (${allEntries.length})',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+          const Spacer(),
+          if (trailingActions != null) trailingActions,
         ],
       ),
     );
   }
 
-  Widget _buildMobileLayout(
-    BuildContext context,
+  List<MapEntry<String, dynamic>> _sortEntries(
     List<MapEntry<String, dynamic>> entries,
-    ThemeData theme,
-    Map<String, dynamic> entities,
-    Widget? trailingActions,
+    List<String> orderedKeys,
   ) {
-    const maxVisible = 4;
-    final displayEntries = entries.take(maxVisible).toList();
-    final hasMore = entries.length > maxVisible;
+    final orderedEntries = <MapEntry<String, dynamic>>[];
+    for (final key in orderedKeys) {
+      final match = entries.where((e) => e.key == key);
+      if (match.isNotEmpty) orderedEntries.add(match.first);
+    }
+    return orderedEntries;
+  }
 
-    return Container(
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ...displayEntries.map((e) {
-            final label = FieldLabels.label(intentTag, e.key);
-            final hasValue = e.value != null && e.value.toString().isNotEmpty;
-            final value = hasValue ? e.value.toString() : '未识别';
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: _InboxFieldChip(
-                label: label,
-                keyName: e.key,
-                value: value,
-                isEmpty: !hasValue,
-                isConfirmed: isConfirmed,
-                onEdit: (newValue) => onFieldEdited(e.key, newValue),
-                isMobile: true,
-              ),
-            );
-          }),
-          if (hasMore || trailingActions != null)
-            Container(
-              padding: const EdgeInsets.only(top: 8),
-              child: Row(
-                children: [
-                  if (hasMore)
-                    InkWell(
-                      onTap: () {
-                        _showAllFieldsSheet(context, entries, theme, entities);
-                      },
-                      borderRadius: BorderRadius.circular(6),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Text(
-                          '查看全部 (${entries.length})',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.primary,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ),
-                  const Spacer(),
-                  if (trailingActions != null) trailingActions!,
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
+  String _displayValue(MapEntry<String, dynamic> entry) {
+    if (_isEmpty(entry)) return '未识别';
+    return entry.value.toString();
+  }
+
+  bool _isEmpty(MapEntry<String, dynamic> entry) {
+    final value = entry.value;
+    return value == null || value.toString().trim().isEmpty;
+  }
+
+  bool _isValueEmpty(String value) {
+    return value.trim().isEmpty || value == '未识别';
+  }
+
+  String _valueFor(List<MapEntry<String, dynamic>> entries, String key) {
+    final match = entries.where((e) => e.key == key);
+    if (match.isEmpty) return '未识别';
+    return _displayValue(match.first);
+  }
+
+  String _todoFieldTitle(String key) {
+    switch (key) {
+      case 'title':
+        return '事项';
+      case 'due_date':
+        return '时间';
+      case 'priority':
+        return '优先级';
+      case 'assignee':
+        return '负责人';
+      case 'notes':
+        return '备注';
+      case 'description':
+        return '说明';
+      default:
+        return FieldLabels.label(intentTag, key);
+    }
+  }
+
+  IconData _todoFieldIcon(String key) {
+    switch (key) {
+      case 'title':
+        return Icons.check_circle_outline_rounded;
+      case 'due_date':
+        return Icons.alarm_rounded;
+      case 'priority':
+        return Icons.flag_outlined;
+      case 'assignee':
+        return Icons.person_outline_rounded;
+      case 'notes':
+        return Icons.sticky_note_2_outlined;
+      case 'description':
+        return Icons.notes_rounded;
+      default:
+        return Icons.circle_outlined;
+    }
+  }
+
+  void _editEntry(BuildContext context, MapEntry<String, dynamic> entry) {
+    _InboxFieldChip(
+      label: FieldLabels.label(intentTag, entry.key),
+      keyName: entry.key,
+      value: _displayValue(entry),
+      isEmpty: _isEmpty(entry),
+      isConfirmed: isConfirmed,
+      onEdit: (newValue) => onFieldEdited(entry.key, newValue),
+    )._showEditDialog(context);
   }
 
   void _showAllFieldsSheet(
     BuildContext context,
     List<MapEntry<String, dynamic>> entries,
     ThemeData theme,
-    Map<String, dynamic> entities,
   ) {
     showModalBottomSheet(
       context: context,
@@ -3590,24 +4141,7 @@ class _InboxFieldList extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              ...entries.map((e) {
-                final label = FieldLabels.label(intentTag, e.key);
-                final hasValue =
-                    e.value != null && e.value.toString().isNotEmpty;
-                final value = hasValue ? e.value.toString() : '未识别';
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: _InboxFieldChip(
-                    label: label,
-                    keyName: e.key,
-                    value: value,
-                    isEmpty: !hasValue,
-                    isConfirmed: isConfirmed,
-                    onEdit: (newValue) => onFieldEdited(e.key, newValue),
-                    isMobile: true,
-                  ),
-                );
-              }),
+              _buildIntentLayout(ctx, entries, theme, true, null),
             ],
           ),
         ),
@@ -3624,6 +4158,7 @@ class _InboxFieldChip extends StatelessWidget {
   final bool isEmpty;
   final bool isConfirmed;
   final bool isMobile;
+  final bool compactLabel;
   final void Function(String newValue) onEdit;
 
   const _InboxFieldChip({
@@ -3634,93 +4169,50 @@ class _InboxFieldChip extends StatelessWidget {
     required this.isConfirmed,
     required this.onEdit,
     this.isMobile = false,
+    this.compactLabel = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
-    if (isMobile) {
-      return InkWell(
-        onTap: () => _showEditDialog(context),
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: theme.dividerColor.withValues(alpha: 0.15),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w500,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                isEmpty
-                    ? '未识别'
-                    : (value.length > 50
-                          ? '${value.substring(0, 50)}...'
-                          : value),
-                style: TextStyle(
-                  fontSize: 13,
-                  fontStyle: isEmpty ? FontStyle.italic : null,
-                  color: isEmpty ? Colors.grey : theme.colorScheme.onSurface,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
     return InkWell(
       onTap: () => _showEditDialog(context),
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: theme.dividerColor.withValues(alpha: 0.15)),
-        ),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: compactLabel ? 4 : 2),
         child: Row(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '$label: ',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+            SizedBox(
+              width: compactLabel ? 56 : 72,
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: compactLabel ? 11 : 12,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.48),
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ),
-            Text(
-              isEmpty
-                  ? '未识别'
-                  : (value.length > 30
-                        ? '${value.substring(0, 30)}...'
-                        : value),
-              style: TextStyle(
-                fontSize: 12,
-                fontStyle: isEmpty ? FontStyle.italic : null,
-                color: isEmpty ? Colors.grey : theme.colorScheme.onSurface,
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                isEmpty
+                    ? '未识别'
+                    : (value.length > (isMobile ? 72 : 90)
+                          ? '${value.substring(0, isMobile ? 72 : 90)}...'
+                          : value),
+                maxLines: compactLabel ? 1 : 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: compactLabel ? 12.5 : 13,
+                  fontStyle: isEmpty ? FontStyle.italic : null,
+                  height: 1.35,
+                  color: isEmpty
+                      ? theme.colorScheme.onSurface.withValues(alpha: 0.34)
+                      : theme.colorScheme.onSurface,
+                ),
               ),
-            ),
-            const SizedBox(width: 4),
-            Icon(
-              Icons.edit_outlined,
-              size: 12,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
             ),
           ],
         ),
