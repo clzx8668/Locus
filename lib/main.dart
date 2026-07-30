@@ -1,18 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'core/di/service_locator.dart';
-import 'features/timeline/presentation/timeline_page.dart';
-import 'features/chat/presentation/chat_page.dart';
+import 'core/database/database.dart';
+import 'core/theme/theme_config.dart';
 import 'features/home/presentation/locus_home_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 加载环境变量文件
   await dotenv.load(fileName: ".env");
-
-  // 启动依赖注入中枢
   await setupLocator();
+
+  final db = getIt<AppDatabase>();
+  final config = getIt<ThemeConfig>();
+
+  final colorKey = await db.getConfig('theme_color') ?? 'coral';
+  final fontKey = await db.getConfig('font_scale') ?? 'medium';
+  final modeKey = await db.getConfig('theme_mode') ?? 'system';
+
+  config.update(
+    primaryColor: ThemeConfig.colorOptions[colorKey],
+    fontScale: ThemeConfig.fontScales[fontKey] ?? 1.0,
+    themeMode: modeKey == 'light' ? ThemeMode.light : modeKey == 'dark' ? ThemeMode.dark : ThemeMode.system,
+  );
 
   runApp(const LocusApp());
 }
@@ -20,85 +29,43 @@ void main() async {
 class LocusApp extends StatelessWidget {
   const LocusApp({super.key});
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Locus Hub',
-      debugShowCheckedModeBanner: false,
-      darkTheme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF1E1E1E),
-        cardColor: const Color(0xFF2C2C2C),
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFFFF6B6B),
-          surface: Color(0xFF2C2C2C),
-        ),
-        hintColor: Colors.white54,
-        shadowColor: Colors.transparent,
-      ),
-      theme: ThemeData(
-        brightness: Brightness.light,
-        scaffoldBackgroundColor: const Color(0xFFF5F5F5),
-        cardColor: Colors.white,
-        colorScheme: const ColorScheme.light(
-          primary: Color(0xFFFF6B6B),
-          surface: Colors.white,
-        ),
-        hintColor: Colors.black45,
-        shadowColor: Colors.black12,
-      ),
-      home: const LocusHomePage(),
+  static ThemeData _buildTheme(Brightness brightness, Color primary) {
+    final isDark = brightness == Brightness.dark;
+    return ThemeData(
+      brightness: brightness,
+      primaryColor: primary,
+      scaffoldBackgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF5F5F5),
+      cardColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      colorScheme: ColorScheme.fromSeed(seedColor: primary, brightness: brightness),
+      hintColor: isDark ? Colors.white54 : Colors.black45,
+      shadowColor: isDark ? Colors.transparent : Colors.black12,
+      appBarTheme: AppBarTheme(backgroundColor: Colors.transparent, elevation: 0, scrolledUnderElevation: 0, iconTheme: IconThemeData(color: isDark ? Colors.white70 : Colors.black87), titleTextStyle: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 18, fontWeight: FontWeight.w600)),
+      cardTheme: CardThemeData(elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+      inputDecorationTheme: InputDecorationTheme(border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12)),
     );
   }
-}
-
-class MainNavigationScreen extends StatefulWidget {
-  const MainNavigationScreen({super.key});
-
-  @override
-  State<MainNavigationScreen> createState() => _MainNavigationScreenState();
-}
-
-class _MainNavigationScreenState extends State<MainNavigationScreen> {
-  int _currentIndex = 0;
-
-  // 这里的列表可以随时扩展，比如加上 FinancePage, CrmPage
-  final List<Widget> _pages = const [
-    TimelinePage(),
-    ChatPage(),
-  ];
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Locus', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
-        elevation: 0,
-      ),
-      body: _pages[_currentIndex], // 根据索引切换页面，无滑动冲突
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (int index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.stream),
-            selectedIcon: Icon(Icons.stream, color: Colors.blueGrey),
-            label: '闪念流',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.smart_toy_outlined),
-            selectedIcon: Icon(Icons.smart_toy),
-            label: 'AI 枢纽',
-          ),
-          // 未来只需在这里加一行代码，就能增加新的底部 Tab
-          // NavigationDestination(icon: Icon(Icons.pie_chart), label: '业务看板'),
-        ],
-      ),
+    return ListenableBuilder(
+      listenable: getIt<ThemeConfig>(),
+      builder: (context, _) {
+        final config = getIt<ThemeConfig>();
+        return MaterialApp(
+          title: 'Locus',
+          debugShowCheckedModeBanner: false,
+          themeMode: config.themeMode,
+          theme: _buildTheme(Brightness.light, config.primaryColor),
+          darkTheme: _buildTheme(Brightness.dark, config.primaryColor),
+          builder: (context, child) {
+            return MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(config.fontScale)),
+              child: child!,
+            );
+          },
+          home: const LocusHomePage(),
+        );
+      },
     );
   }
 }

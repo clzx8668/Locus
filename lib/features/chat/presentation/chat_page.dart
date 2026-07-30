@@ -3,501 +3,161 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:drift/drift.dart' hide Column;
 
 import '../../../core/di/service_locator.dart';
 import '../../../core/database/database.dart';
+import '../../../core/vault/vault_service.dart';
+import '../../../core/vault/fts_index_service.dart';
+import '../../../core/services/embedding_service.dart';
 import 'chat_history_search_page.dart';
 import '../../memory/presentation/long_term_memory_page.dart';
 
-class ChatBubble {
-  final String text;
-  final bool isUser;
+class ChatBubble { final String text; final bool isUser; ChatBubble({required this.text, required this.isUser}); }
 
-  ChatBubble({required this.text, required this.isUser});
-}
-
-class ChatPage extends StatefulWidget {
-  const ChatPage({super.key});
-
-  @override
-  State<ChatPage> createState() => _ChatPageState();
-}
+class ChatPage extends StatefulWidget { const ChatPage({super.key}); @override State<ChatPage> createState() => _ChatPageState(); }
 
 class _ChatPageState extends State<ChatPage> {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final Dio _dio = Dio();
   final FocusNode _focusNode = FocusNode();
-
-  final List<ChatBubble> _messages = [
-    ChatBubble(
-      text: "你好！我是 Locus 右脑。我已经成功点亮了**长期记忆**。现在我更进一步，解封了**高级 Markdown 视觉排版能力**。你可以让我试着写一段代码、列一个专业表格，或者梳理复杂的业务流程了！",
-      isUser: false,
-    ),
-  ];
-
+  final List<ChatBubble> _messages = [ChatBubble(text: "Hello! I'm Locus with vector search RAG. Ask me about your documents.", isUser: false)];
   bool _isAiThinking = false;
   int? _currentSessionId;
 
   AppDatabase get db => getIt<AppDatabase>();
+  VaultService get vaultService => getIt<VaultService>();
+  FtsIndexService get ftsService => getIt<FtsIndexService>();
+  EmbeddingService get embeddingService => getIt<EmbeddingService>();
 
-  // ================= RAG 本地知识检索 (模拟左脑 Drift 数据库) =================
-  Future<String> _searchLocalKnowledge(String userQuery) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    if (userQuery.contains('库存') ||
-        userQuery.contains('带风头') ||
-        userQuery.contains('陶瓷膜')) {
-      return """
-[关联本地日记 / 2026-04-15] 记录人：我自己
-内容：今日盘点，我们的碳化硅陶瓷模产品，带风头（带风）的规格，目前仓库 A 区还剩余 250 个。没有风头的常规版剩余 800 个。下周需要通知生产线补充带风头的库存。
-      """;
+  Future<String> _gatherContext(String userQuery) async {
+    final parts = <String>[];
+    try {
+      final vectorResults = await embeddingService.search(query: userQuery, limit: 3, minSimilarity: 0.3);
+      if (vectorResults.isNotEmpty) parts.add('[Vector RAG]\n${vectorResults.map((r) => '> ${r.content.length > 200 ? "${r.content.substring(0, 200)}..." : r.content}').join('\n\n')}');
+    } catch (e) { debugPrint('Vector search skipped: $e'); }
+    if (ftsService.isInitialized) {
+      try { final ftsR = ftsService.search(userQuery); if (ftsR.isNotEmpty) parts.add('[Vault]\n${ftsR.take(3).map((r) => '**${r['title']}**\n${r['snippet']}').join('\n\n')}'); } catch (_) {}
     }
-
-    return "";
+    try { final dbC = await db.getRelevantContext(userQuery); if (dbC.isNotEmpty) parts.add('[Documents]\n$dbC'); } catch (_) {}
+    try {
+      final contacts = await db.searchContacts(userQuery);
+      if (contacts.isNotEmpty) {
+        parts.add('[Contacts]\n${contacts.take(3).map((c) => '- ${c.name}${c.company != null ? ' (${c.company})' : ''}').join('\n')}');
+        for (final c in contacts.take(2)) {
+          final acts = await (db.select(db.activities)..where((t) => t.contactId.equals(c.id))..orderBy([(t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc)])..limit(3)).get();
+          if (acts.isNotEmpty) parts.add('[Recent: ${c.name}]\n${acts.map((a) => '- [${a.type}] ${a.content.length > 60 ? '${a.content.substring(0, 60)}...' : a.content}').join('\n')}');
+        }
+      }
+    } catch (_) {}
+    return parts.join('\n\n---\n\n');
   }
-  // =========================================================================
 
   void _sendMessage() async {
     final text = _textController.text.trim();
     if (text.isEmpty) return;
-
-    setState(() {
-      _messages.add(ChatBubble(text: text, isUser: true));
-      _textController.clear();
-      _isAiThinking = true;
-    });
-
-    _focusNode.requestFocus();
-    _scrollToBottom();
-
+    setState(() { _messages.add(ChatBubble(text: text, isUser: true)); _textController.clear(); _isAiThinking = true; });
+    _focusNode.requestFocus(); _scrollToBottom();
     final apiKey = (dotenv.env['LLM_API_KEY'] ?? '').trim();
     var baseUrl = (dotenv.env['LLM_BASE_URL'] ?? 'https://api.deepseek.com/v1').trim();
     final modelName = (dotenv.env['LLM_MODEL_NAME'] ?? 'deepseek-chat').trim();
-
-    if (baseUrl.endsWith('/')) {
-      baseUrl = baseUrl.substring(0, baseUrl.length - 1);
-    }
-
-    // 1. 触发左脑知识库检索
-    final localContext = await _searchLocalKnowledge(text);
-
-    // 2. 深度阅读引擎：从挂载的资料库中检索相关上下文
-    final ragContext = await db.getRelevantContext(text);
-    if (ragContext.isNotEmpty) {
-      debugPrint("RAG 检索命中，上下文长度: ${ragContext.length}");
-    }
-
-    // 3. 构建记忆增强 System Prompt
+    if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+    final localContext = await _gatherContext(text);
     final memories = await db.getAllMemoryTexts();
-    String systemPrompt =
-        '你是一个部署在本地的智能综合助理 Locus 的右脑。请用专业、严谨且有条理的语言回答问题。遇到结构化数据请使用 Markdown。';
-    if (memories.isNotEmpty) {
-      systemPrompt += '\n\n【关于我的核心信息，你必须永远牢记】：\n';
-      for (var m in memories) {
-        systemPrompt += '- $m\n';
-      }
-    }
-    if (ragContext.isNotEmpty) {
-      systemPrompt +=
-          '\n\n【📚 参考文档资料】：\n$ragContext\n\n请优先基于上述参考文档资料来回答用户的问题。';
-    }
-    systemPrompt +=
-        '\n\n【特别指令】：如果用户明确要求你记住某事，请在回答的末尾加上特殊标记：[SAVE_MEMORY: 要记住的具体事实]。';
-    if (localContext.isNotEmpty) {
-      systemPrompt +=
-          '\n\n【⚠️ 极高优先级：本地知识库检索结果】\n$localContext\n\n请严格基于上述本地知识库的信息来回答用户的问题。';
-      debugPrint("已成功向右脑注入本地上下文！");
-    }
-
-    List<Map<String, dynamic>> apiMessages = [
-      {'role': 'system', 'content': systemPrompt}
-    ];
-
-    const int historyLimit = 10;
-    final recentMessages = _messages.length > historyLimit
-        ? _messages.sublist(_messages.length - historyLimit)
-        : _messages;
-
-    for (var msg in recentMessages) {
-      apiMessages.add({
-        'role': msg.isUser ? 'user' : 'assistant',
-        'content': msg.text
-      });
-    }
-
+    String systemPrompt = 'You are Locus, a local intelligent assistant. Answer professionally with Markdown.';
+    if (memories.isNotEmpty) systemPrompt += '\n\n[My Core Facts]:\n${memories.map((m) => '- $m').join('\n')}';
+    if (localContext.isNotEmpty) systemPrompt += '\n\n[Local Context]:\n$localContext';
+    systemPrompt += '\n\n[Special]: If I ask you to remember something, end with [SAVE_MEMORY: fact].';
+    List<Map<String, dynamic>> apiMessages = [{'role': 'system', 'content': systemPrompt}];
+    final recent = _messages.length > 10 ? _messages.sublist(_messages.length - 10) : _messages;
+    for (var m in recent) apiMessages.add({'role': m.isUser ? 'user' : 'assistant', 'content': m.text});
     try {
-      // 🌟 核心流式改造 1：配置 Dio 接收数据流
-      final response = await _dio.post(
-        '$baseUrl/chat/completions',
-        options: Options(
-          headers: {
-            'Authorization': 'Bearer $apiKey',
-            'Content-Type': 'application/json',
-            'Accept': 'text/event-stream',
-          },
-          responseType: ResponseType.stream,
-        ),
-        data: {
-          'model': modelName,
-          'messages': apiMessages,
-          'temperature': 0.7,
-          'stream': true,
-        },
-      );
-
-      // 🌟 核心流式改造 2：准备一个空的 AI 气泡来接水
-      if (mounted) {
-        setState(() {
-          _isAiThinking = false;
-          _messages.add(ChatBubble(text: "", isUser: false));
-        });
-      }
-
-      String currentReply = "";
-
-      // 🌟 核心流式改造 3：监听流并疯狂重绘
+      final response = await _dio.post('$baseUrl/chat/completions', options: Options(headers: {'Authorization': 'Bearer $apiKey', 'Content-Type': 'application/json', 'Accept': 'text/event-stream'}, responseType: ResponseType.stream, sendTimeout: const Duration(seconds: 30), receiveTimeout: const Duration(seconds: 60)), data: {'model': modelName, 'messages': apiMessages, 'temperature': 0.7, 'stream': true});
+      if (mounted) setState(() { _isAiThinking = false; _messages.add(ChatBubble(text: "", isUser: false)); });
+      String cur = "";
       await for (var bytes in response.data.stream) {
-        final chunk = utf8.decode(bytes, allowMalformed: true);
-        final lines = chunk.split('\n');
-
-        for (var line in lines) {
-          if (line.trim().isEmpty) continue;
-
-          if (line.startsWith('data: ')) {
-            final dataStr = line.substring(6).trim();
-
-            if (dataStr == '[DONE]') {
-              // 拦截并提取自动记忆标签 [SAVE_MEMORY: xxx]
-              final memoryRegex = RegExp(r'\[SAVE_MEMORY:\s*(.*?)\]');
-              final match = memoryRegex.firstMatch(currentReply);
-
-              if (match != null) {
-                final memoryToSave = match.group(1);
-                if (memoryToSave != null && memoryToSave.trim().isNotEmpty) {
-                  await db.addMemory(memoryToSave.trim(), tags: 'AI自动提取');
-                  currentReply = currentReply.replaceAll(memoryRegex, '').trim();
-                }
-              }
-
-              // 惰性创建：第一次发言时，动态生成带摘要的 Session
-              if (_currentSessionId == null) {
-                String sessionTitle =
-                    text.length > 15 ? '${text.substring(0, 15)}...' : text;
-                _currentSessionId = await db.createSession(sessionTitle);
-              }
-
-              // 保存用户的提问和 AI 的回答
-              await db.insertMessage(_currentSessionId!, 'user', text);
-              await db.insertMessage(_currentSessionId!, 'assistant', currentReply);
-
-              break;
-            }
-
-            try {
-              final jsonObj = jsonDecode(dataStr);
-              final delta = jsonObj['choices'][0]['delta']['content'];
-
-              if (delta != null) {
-                currentReply += delta;
-
-                if (mounted) {
-                  setState(() {
-                    _messages[_messages.length - 1] =
-                        ChatBubble(text: currentReply, isUser: false);
-                  });
-                  _scrollToBottom();
-                }
-              }
-            } catch (e) {
-              // 网络流可能把一个 JSON 切成两半发过来，这里直接 catch 掉不崩溃
-            }
+        for (var line in utf8.decode(bytes, allowMalformed: true).split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          final ds = line.substring(6).trim();
+          if (ds == '[DONE]') {
+            final mm = RegExp(r'\[SAVE_MEMORY:\s*(.*?)\]').firstMatch(cur);
+            if (mm != null && mm.group(1)!.trim().isNotEmpty) { await db.addMemory(mm.group(1)!.trim(), tags: 'AI-auto'); cur = cur.replaceAll(RegExp(r'\[SAVE_MEMORY:\s*(.*?)\]'), '').trim(); }
+            if (_currentSessionId == null) _currentSessionId = await db.createSession(text.length > 20 ? '${text.substring(0, 20)}...' : text);
+            await db.insertMessage(_currentSessionId!, 'user', text); await db.insertMessage(_currentSessionId!, 'assistant', cur);
+            _writeChatLog(text, cur); break;
           }
+          try { final d = jsonDecode(ds)['choices'][0]['delta']['content']; if (d != null) { cur += d; if (mounted) setState(() { _messages[_messages.length - 1] = ChatBubble(text: cur, isUser: false); }); _scrollToBottom(); } } catch (_) {}
         }
       }
-    } on DioException catch (e) {
-      String errorDetail = e.message ?? "未知网络异常";
-      if (mounted) {
-        setState(() {
-          _isAiThinking = false;
-          _messages.add(ChatBubble(
-              text: "🚨 抱歉，流式连接异常。\n原因: $errorDetail", isUser: false));
-        });
+    } on DioException catch (e) { if (mounted) setState(() { _isAiThinking = false; _messages.add(ChatBubble(text: "Network error: ${e.message}", isUser: false)); }); } catch (e) { if (mounted) setState(() { _isAiThinking = false; _messages.add(ChatBubble(text: "Error: $e", isUser: false)); }); } finally { _scrollToBottom(); }
+  }
+
+  void _writeChatLog(String u, String a) async {
+    try {
+      if (vaultService.vaultPath != null) {
+        final t = u.length > 30 ? '${u.substring(0, 30)}...' : u; final now = DateTime.now();
+        await vaultService.writeNote(subDir: 'chat-logs', fileName: '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}-$t.md'.replaceAll(RegExp(r'[\\/:*?"<>|]'), '-'), frontmatter: {'title': t, 'type': 'chat-log', 'tags': 'ai-chat', 'created': now.toIso8601String()}, body: '## User\n$u\n\n## Locus\n$a\n');
       }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isAiThinking = false;
-          _messages.add(ChatBubble(text: "🚨 发生意外错误: $e", isUser: false));
-        });
-      }
-    } finally {
-      _scrollToBottom();
-    }
+    } catch (_) {}
   }
 
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
-  }
-
-  void _startNewConversation() {
-    setState(() {
-      _currentSessionId = null;
-      _messages.clear();
-      _messages.add(ChatBubble(
-        text: "✨ 记忆区已重置。准备好探讨碳化硅陶瓷膜的最新工艺或业务需求了，请指示。",
-        isUser: false,
-      ));
-    });
-    _focusNode.requestFocus();
-  }
-
-  // ================= 恢复历史对话现场 =================
-  void _loadSession(int sessionId) async {
-    setState(() {
-      _isAiThinking = true;
-      _messages.clear();
-    });
-
-    final historyMessages = await db.getMessagesForSession(sessionId);
-
-    setState(() {
-      _currentSessionId = sessionId;
-
-      _messages.clear();
-      _messages.addAll(historyMessages.map((msg) => ChatBubble(
-        text: msg.content,
-        isUser: msg.role == 'user',
-      )));
-
-      _isAiThinking = false;
-    });
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToBottom();
-    });
-  }
-  // ==================================================
-
-  @override
-  void dispose() {
-    _textController.dispose();
-    _scrollController.dispose();
-    _focusNode.dispose();
-    super.dispose();
-  }
+  void _scrollToBottom() { WidgetsBinding.instance.addPostFrameCallback((_) { if (_scrollController.hasClients) _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut); }); }
+  void _startNewConversation() { setState(() { _currentSessionId = null; _messages.clear(); _messages.add(ChatBubble(text: "New conversation. How can I help?", isUser: false)); }); _focusNode.requestFocus(); }
+  void _loadSession(int sid) async { setState(() { _isAiThinking = true; _messages.clear(); }); final h = await db.getMessagesForSession(sid); if (mounted) { setState(() { _currentSessionId = sid; _messages.addAll(h.map((m) => ChatBubble(text: m.content, isUser: m.role == 'user'))); _isAiThinking = false; }); WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom()); } }
+  @override void dispose() { _textController.dispose(); _scrollController.dispose(); _focusNode.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? const Color(0xFF121212) : Colors.grey[50]!;
+    final userBubble = isDark ? const Color(0xFFFF6B6B) : Colors.black87;
+    final aiBubble = isDark ? const Color(0xFF2C2C2C) : Colors.white;
+    final aiText = isDark ? Colors.white : Colors.black87;
+    final inputBg = isDark ? const Color(0xFF2C2C2C) : Colors.grey[100]!;
+    final barBg = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final barBorder = isDark ? Colors.white10 : const Color(0x0D000000);
+    final hintColor = isDark ? Colors.white30 : Colors.grey[400]!;
+
     return Scaffold(
-      backgroundColor: Colors.grey[50],
+      backgroundColor: bg,
       appBar: AppBar(
-        title: const Text('Locus 右脑', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-        backgroundColor: Colors.white,
-        elevation: 0.5,
-        centerTitle: true,
+        title: Text('Locus AI', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: isDark ? Colors.white : Colors.black87)),
+        backgroundColor: barBg, elevation: 0.5, centerTitle: true, scrolledUnderElevation: 0,
+        iconTheme: IconThemeData(color: isDark ? Colors.white70 : Colors.black87),
         actions: [
-          // 🧠 金刚键 1：长久记忆与资料库
-          IconButton(
-            icon: const Icon(Icons.memory_rounded, color: Colors.blueGrey, size: 24),
-            tooltip: '长久记忆与资料库',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const LongTermMemoryPage()),
-              );
-            },
-          ),
-          // 🔍 金刚键 2：历史对话与全局搜索
-          IconButton(
-            icon: const Icon(Icons.search_rounded, color: Colors.black87, size: 24),
-            tooltip: '搜索历史记录',
-            onPressed: () async {
-              final selectedSessionId = await Navigator.push<int>(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const ChatHistorySearchPage(),
-                  fullscreenDialog: true,
-                ),
-              );
-
-              if (selectedSessionId != null) {
-                _loadSession(selectedSessionId);
-              }
-            },
-          ),
-          // ✨ 金刚键 3：新建对话
-          IconButton(
-            icon: const Icon(Icons.create_outlined, color: Colors.black87, size: 22),
-            tooltip: '开启新对话',
-            onPressed: _startNewConversation,
-          ),
-          const SizedBox(width: 12),
+          IconButton(icon: Icon(Icons.memory_rounded, color: isDark ? Colors.blueGrey[300] : Colors.blueGrey), tooltip: 'Memory', onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const LongTermMemoryPage()))),
+          IconButton(icon: Icon(Icons.search_rounded, color: isDark ? Colors.white70 : Colors.black87), tooltip: 'History', onPressed: () async { final sid = await Navigator.push<int>(context, MaterialPageRoute(builder: (_) => const ChatHistorySearchPage(), fullscreenDialog: true)); if (sid != null) _loadSession(sid); }),
+          IconButton(icon: Icon(Icons.create_outlined, color: isDark ? Colors.white70 : Colors.black87), tooltip: 'New', onPressed: _startNewConversation), const SizedBox(width: 12),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final msg = _messages[index];
-                return _buildMessageBubble(msg);
-              },
-            ),
-          ),
-          if (_isAiThinking)
-            Padding(
-              padding: const EdgeInsets.only(left: 24, bottom: 12, top: 4),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Row(
-                  children: [
-                    SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blueGrey[300]),
-                    ),
-                    const SizedBox(width: 10),
-                    Text("Locus 正在思考...", style: TextStyle(color: Colors.blueGrey[400], fontSize: 13)),
-                  ],
-                ),
-              ),
-            ),
-          _buildInputArea(),
-        ],
-      ),
+      body: Column(children: [
+        Expanded(child: ListView.builder(controller: _scrollController, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20), itemCount: _messages.length, itemBuilder: (_, i) => _buildBubble(_messages[i], isDark, userBubble, aiBubble, aiText))),
+        if (_isAiThinking) Padding(padding: const EdgeInsets.only(left: 24, bottom: 12, top: 4), child: Align(alignment: Alignment.centerLeft, child: Row(children: [SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: isDark ? Colors.blueGrey[300] : Colors.blueGrey[400])), const SizedBox(width: 10), Text("Thinking...", style: TextStyle(color: isDark ? Colors.white38 : Colors.blueGrey[400], fontSize: 13))]))),
+        _buildInputArea(isDark, inputBg, barBg, barBorder, hintColor),
+      ]),
     );
   }
 
-  Widget _buildMessageBubble(ChatBubble msg) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16.0),
-      child: Row(
-        mainAxisAlignment: msg.isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (!msg.isUser) _buildAvatar(Icons.smart_toy_outlined, Colors.blueGrey),
-          const SizedBox(width: 10),
-          Flexible(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: msg.isUser ? Colors.black87 : Colors.white,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(16),
-                  topRight: const Radius.circular(16),
-                  bottomLeft: Radius.circular(msg.isUser ? 16 : 4),
-                  bottomRight: Radius.circular(msg.isUser ? 4 : 16),
-                ),
-                boxShadow: msg.isUser ? null : [
-                  BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 2))
-                ],
-              ),
-              // 2. 核心细节修改：根据消息主体动态渲染
-              child: msg.isUser
-                  ? SelectableText(
-                      msg.text,
-                      style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4),
-                    )
-                  : MarkdownBody(
-                      data: msg.text,
-                      selectable: true,
-                      styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                        p: const TextStyle(color: Colors.black87, fontSize: 15, height: 1.5),
-                        h1: const TextStyle(color: Colors.black, fontSize: 20, fontWeight: FontWeight.bold, height: 1.5),
-                        h2: const TextStyle(color: Colors.black87, fontSize: 18, fontWeight: FontWeight.bold, height: 1.5),
-
-                        // 统一用 code 来控制行内代码和代码块内部的字体
-                        code: TextStyle(color: Colors.red[800], backgroundColor: Colors.transparent, fontFamily: 'monospace', fontSize: 14),
-
-                        // 代码块的外框背景依然保留暗色极客风格
-                        codeblockDecoration: BoxDecoration(
-                          color: Colors.grey[100],
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey[300]!),
-                        ),
-
-                        tableBorder: TableBorder.all(color: Colors.grey[300]!, width: 1),
-                        tableBody: const TextStyle(color: Colors.black87, fontSize: 14),
-                        tableHead: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
-                    ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          if (msg.isUser) _buildAvatar(Icons.person_outline, Colors.black87),
-        ],
-      ),
-    );
+  Widget _buildBubble(ChatBubble msg, bool isDark, Color userBubble, Color aiBubble, Color aiText) {
+    return Padding(padding: const EdgeInsets.only(bottom: 16), child: Row(mainAxisAlignment: msg.isUser ? MainAxisAlignment.end : MainAxisAlignment.start, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      if (!msg.isUser) CircleAvatar(radius: 16, backgroundColor: (isDark ? Colors.blueGrey[700] : Colors.blueGrey[100])!, child: Icon(Icons.smart_toy_outlined, size: 18, color: isDark ? Colors.white60 : Colors.blueGrey)),
+      const SizedBox(width: 10),
+      Flexible(child: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), decoration: BoxDecoration(color: msg.isUser ? userBubble : aiBubble, borderRadius: BorderRadius.only(topLeft: const Radius.circular(16), topRight: const Radius.circular(16), bottomLeft: Radius.circular(msg.isUser ? 16 : 4), bottomRight: Radius.circular(msg.isUser ? 4 : 16))), child: msg.isUser ? SelectableText(msg.text, style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4)) : MarkdownBody(data: msg.text, selectable: true, styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(p: TextStyle(color: aiText, fontSize: 15, height: 1.5), h1: TextStyle(color: aiText, fontSize: 20, fontWeight: FontWeight.bold), h2: TextStyle(color: aiText, fontSize: 18, fontWeight: FontWeight.bold), code: TextStyle(color: isDark ? Colors.orange[300] : Colors.red[800], fontFamily: 'monospace', fontSize: 14), codeblockDecoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.grey[100]!, borderRadius: BorderRadius.circular(8), border: Border.all(color: isDark ? Colors.white10 : Colors.grey[300]!)), tableBorder: TableBorder.all(color: isDark ? Colors.white24 : Colors.grey[300]!, width: 1))))),
+      const SizedBox(width: 10),
+      if (msg.isUser) CircleAvatar(radius: 16, backgroundColor: (isDark ? const Color(0xFFFF6B6B).withValues(alpha: 0.2) : Colors.black12), child: Icon(Icons.person_outline, size: 18, color: isDark ? const Color(0xFFFF6B6B) : Colors.black87)),
+    ]));
   }
 
-  Widget _buildAvatar(IconData icon, Color bgColor) {
-    return CircleAvatar(
-      radius: 16,
-      backgroundColor: bgColor.withValues(alpha: 0.1),
-      child: Icon(icon, size: 18, color: bgColor),
-    );
-  }
-
-  Widget _buildInputArea() {
+  Widget _buildInputArea(bool isDark, Color inputBg, Color barBg, Color barBorder, Color hintColor) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), offset: const Offset(0, -2), blurRadius: 10)
-        ],
-      ),
-      child: SafeArea(
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _textController,
-                focusNode: _focusNode,
-                maxLines: 4,
-                minLines: 1,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _sendMessage(),
-                decoration: InputDecoration(
-                  hintText: '向 Locus 提问...',
-                  hintStyle: TextStyle(color: Colors.grey[400]),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(20),
-                    borderSide: BorderSide.none,
-                  ),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: _sendMessage,
-              child: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: const BoxDecoration(
-                  color: Colors.black87,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.arrow_upward, color: Colors.white, size: 20),
-              ),
-            ),
-          ],
-        ),
-      ),
+      decoration: BoxDecoration(color: barBg, border: Border(top: BorderSide(color: barBorder))),
+      child: SafeArea(child: Row(children: [
+        Expanded(child: TextField(controller: _textController, focusNode: _focusNode, maxLines: 4, minLines: 1, textInputAction: TextInputAction.send, onSubmitted: (_) => _sendMessage(), style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 15), decoration: InputDecoration(hintText: 'Ask Locus...', hintStyle: TextStyle(color: hintColor, fontSize: 14), border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none), filled: true, fillColor: inputBg, contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10)))),
+        const SizedBox(width: 8),
+        GestureDetector(onTap: _sendMessage, child: Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: isDark ? const Color(0xFFFF6B6B) : Colors.black87, shape: BoxShape.circle), child: const Icon(Icons.arrow_upward, color: Colors.white, size: 20))),
+      ])),
     );
   }
 }

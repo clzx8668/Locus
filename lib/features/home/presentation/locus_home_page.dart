@@ -4,167 +4,149 @@ import '../../idea_stream/presentation/pages/idea_stream_page.dart';
 import '../../calendar/presentation/pages/calendar_page.dart';
 import '../../ai_hub/presentation/pages/ai_hub_page.dart';
 import '../../settings/presentation/pages/settings_page.dart';
+import '../../contacts/presentation/pages/crm_page.dart';
 
 class LocusHomePage extends StatefulWidget {
   const LocusHomePage({super.key});
-
   @override
   State<LocusHomePage> createState() => _LocusHomePageState();
 }
 
 class _LocusHomePageState extends State<LocusHomePage> {
-  int _currentIndex = 0;
+  int _cur = 0;
+  late final List<Widget> _pages;
 
-  final List<Widget> _pages = [
-    const IdeaStreamPage(),
-    const CalendarPage(),
-    const AiHubPage(),
-    const SettingsPage(),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _pages = [
+      IdeaStreamPage(onNavigate: (i) => setState(() => _cur = i)),
+      const CrmPage(),
+      const CalendarPage(),
+      const AiHubPage(),
+      const SettingsPage(),
+    ];
+  }
 
-  bool _isRightSide = true;
-  bool _isCollapsed = false;
+  bool _right = true;
+  bool _collapsed = false;
   double? _dragX;
-  bool _isDragging = false;
-
-  final double _buttonSize = 56.0;
-  final double _collapsedVisibleWidth = 14.0;
-  final double _bottomOffset = 100.0;
+  bool _dragging = false;
+  final double _sz = 56.0;
+  final double _vis = 14.0;
+  final double _bot = 100.0;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sw = MediaQuery.of(context).size.width;
+    final bool small = sw < 600;
+    final bool med = sw >= 600 && sw < 960;
+    final bool large = sw >= 960;
+    double sidW = 0;
+    if (large) sidW = 220;
+    if (med) sidW = 70;
+    final caW = sw - sidW;
 
-    final screenWidth = MediaQuery.of(context).size.width;
-    final bool isSmallScreen = screenWidth < 600;
-    final bool isMediumScreen = screenWidth >= 600 && screenWidth < 960;
-    final bool isLargeScreen = screenWidth >= 960;
-
-    double sidebarWidth = 0.0;
-    if (isLargeScreen) sidebarWidth = 220.0;
-    if (isMediumScreen) sidebarWidth = 70.0;
-
-    final double contentAreaWidth = screenWidth - sidebarWidth;
-
-    double leftPosition;
-    if (_isDragging && _dragX != null) {
-      leftPosition = _dragX!.clamp(0.0, contentAreaWidth - _buttonSize);
+    double lp;
+    if (_dragging && _dragX != null) {
+      lp = _dragX!.clamp(0.0, caW - _sz);
     } else {
-      if (_isRightSide) {
-        leftPosition = _isCollapsed
-            ? contentAreaWidth - _collapsedVisibleWidth
-            : contentAreaWidth - _buttonSize - 24.0;
+      if (_right) {
+        lp = _collapsed ? caW - _vis : caW - _sz - 24;
       } else {
-        leftPosition =
-            _isCollapsed ? -(_buttonSize - _collapsedVisibleWidth) : 24.0;
+        lp = _collapsed ? -(_sz - _vis) : 24;
       }
     }
 
-    Widget mainContentStack = Stack(
-      children: [
-        IndexedStack(index: _currentIndex, children: _pages),
-        AnimatedPositioned(
-          duration:
-              _isDragging ? Duration.zero : const Duration(milliseconds: 300),
-          curve: Curves.easeOutBack,
-          left: leftPosition,
-          bottom: !isSmallScreen ? 32.0 : _bottomOffset,
-          child: GestureDetector(
-            onHorizontalDragStart: (_) {
-              setState(() {
-                _isDragging = true;
-                _dragX = leftPosition;
-              });
-            },
-            onHorizontalDragUpdate: (details) {
-              setState(() {
-                _dragX = (_dragX ?? leftPosition) + details.delta.dx;
-              });
-            },
-            onHorizontalDragEnd: (details) {
-              setState(() {
-                _isDragging = false;
-                final currentCenterX = _dragX! + (_buttonSize / 2);
-                final velocityX = details.velocity.pixelsPerSecond.dx;
-
-                if (velocityX > 300) {
-                  _isRightSide = true;
-                } else if (velocityX < -300) {
-                  _isRightSide = false;
-                } else {
-                  _isRightSide = currentCenterX > (contentAreaWidth / 2);
-                }
-
-                if (_isRightSide &&
-                    (velocityX > 200 ||
-                        _dragX! > (contentAreaWidth - _buttonSize - 5))) {
-                  _isCollapsed = true;
-                } else if (!_isRightSide && (velocityX < -200 || _dragX! < 5)) {
-                  _isCollapsed = true;
-                } else {
-                  _isCollapsed = false;
-                }
-                _dragX = null;
-              });
-            },
-            onTap: () {
-              if (_isCollapsed) {
-                setState(() => _isCollapsed = false);
+    Widget stack = Stack(children: [
+      IndexedStack(index: _cur, children: _pages),
+      AnimatedPositioned(
+        duration: _dragging ? Duration.zero : const Duration(milliseconds: 300),
+        curve: Curves.easeOutBack,
+        left: lp,
+        bottom: small ? _bot : 32,
+        child: GestureDetector(
+          onHorizontalDragStart: (_) {
+            setState(() { _dragging = true; _dragX = lp; });
+          },
+          onHorizontalDragUpdate: (d) {
+            setState(() => _dragX = (_dragX ?? lp) + d.delta.dx);
+          },
+          onHorizontalDragEnd: (d) {
+            setState(() {
+              _dragging = false;
+              final cx = _dragX! + _sz / 2;
+              final vx = d.velocity.pixelsPerSecond.dx;
+              if (vx > 300) {
+                _right = true;
+              } else if (vx < -300) {
+                _right = false;
               } else {
-                _openQuickInputConsole(context);
+                _right = cx > caW / 2;
               }
-            },
-            child: Opacity(
-              opacity: _isCollapsed ? 0.5 : 1.0,
-              child: Container(
-                width: _buttonSize,
-                height: _buttonSize,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFF6B6B),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFFF6B6B).withValues(alpha: 0.4),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    )
-                  ],
-                ),
-                child: Center(
-                  child: AnimatedRotation(
-                    duration: const Duration(milliseconds: 200),
-                    turns: _isCollapsed ? (_isRightSide ? -0.25 : 0.25) : 0.0,
-                    child: Icon(
-                      _isCollapsed
-                          ? Icons.arrow_back_ios_new_rounded
-                          : Icons.add_rounded,
-                      color: Colors.white,
-                      size: _isCollapsed ? 16 : 32,
-                    ),
+              if (_right && (vx > 200 || _dragX! > caW - _sz - 5)) {
+                _collapsed = true;
+              } else if (!_right && (vx < -200 || _dragX! < 5)) {
+                _collapsed = true;
+              } else {
+                _collapsed = false;
+              }
+              _dragX = null;
+            });
+          },
+          onTap: () {
+            if (_collapsed) {
+              setState(() => _collapsed = false);
+            } else {
+              _openInput(context);
+            }
+          },
+          child: Opacity(
+            opacity: _collapsed ? 0.5 : 1.0,
+            child: Container(
+              width: _sz,
+              height: _sz,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primary,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.4),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  )
+                ],
+              ),
+              child: Center(
+                child: AnimatedRotation(
+                  duration: const Duration(milliseconds: 200),
+                  turns: _collapsed ? (_right ? -0.25 : 0.25) : 0,
+                  child: Icon(
+                    _collapsed ? Icons.arrow_back_ios_new_rounded : Icons.add_rounded,
+                    color: Colors.white,
+                    size: _collapsed ? 16 : 32,
                   ),
                 ),
               ),
             ),
           ),
         ),
-      ],
-    );
+      ),
+    ]);
 
-    if (!isSmallScreen) {
+    if (!small) {
       return Scaffold(
         backgroundColor: isDark ? const Color(0xFF121212) : Colors.grey[100],
-        body: Row(
-          children: [
-            _buildSidebarContent(context, sidebarWidth, isDark, isMediumScreen),
-            Expanded(child: mainContentStack),
-          ],
-        ),
+        body: Row(children: [
+          _sidebar(isDark, med, sidW),
+          Expanded(child: stack),
+        ]),
       );
     } else {
       return Scaffold(
         extendBody: true,
-        body: mainContentStack,
+        body: stack,
         bottomNavigationBar: Container(
           decoration: BoxDecoration(
             boxShadow: [
@@ -176,39 +158,24 @@ class _LocusHomePageState extends State<LocusHomePage> {
             ],
           ),
           child: Theme(
-            data: theme.copyWith(
+            data: Theme.of(context).copyWith(
               splashColor: Colors.transparent,
               highlightColor: Colors.transparent,
             ),
             child: NavigationBar(
-              selectedIndex: _currentIndex,
+              selectedIndex: _cur,
               elevation: 0,
               backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
               surfaceTintColor: Colors.transparent,
               height: 48,
               labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
-              onDestinationSelected: (index) =>
-                  setState(() => _currentIndex = index),
+              onDestinationSelected: (i) => setState(() => _cur = i),
               destinations: const [
-                NavigationDestination(
-                    icon: Icon(Icons.flash_on_outlined),
-                    selectedIcon:
-                        Icon(Icons.flash_on, color: Color(0xFFFF6B6B)),
-                    label: '闪念'),
-                NavigationDestination(
-                    icon: Icon(Icons.calendar_month_outlined),
-                    selectedIcon:
-                        Icon(Icons.calendar_month, color: Color(0xFFFF6B6B)),
-                    label: '日历'),
-                NavigationDestination(
-                    icon: Icon(Icons.hub_outlined),
-                    selectedIcon: Icon(Icons.hub, color: Color(0xFFFF6B6B)),
-                    label: 'AI枢纽'),
-                NavigationDestination(
-                    icon: Icon(Icons.settings_outlined),
-                    selectedIcon:
-                        Icon(Icons.settings, color: Color(0xFFFF6B6B)),
-                    label: '设置'),
+                NavigationDestination(icon: Icon(Icons.flash_on_outlined), selectedIcon: Icon(Icons.flash_on, color: Color(0xFFFF6B6B)), label: 'Home'),
+                NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people, color: Color(0xFFFF6B6B)), label: 'CRM'),
+                NavigationDestination(icon: Icon(Icons.calendar_month_outlined), selectedIcon: Icon(Icons.calendar_month, color: Color(0xFFFF6B6B)), label: 'Calendar'),
+                NavigationDestination(icon: Icon(Icons.hub_outlined), selectedIcon: Icon(Icons.hub, color: Color(0xFFFF6B6B)), label: 'AI'),
+                NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings, color: Color(0xFFFF6B6B)), label: 'Settings'),
               ],
             ),
           ),
@@ -217,106 +184,57 @@ class _LocusHomePageState extends State<LocusHomePage> {
     }
   }
 
-  Widget _buildSidebarContent(
-      BuildContext context, double width, bool isDark, bool isMedium) {
-    final sidebarBgColor =
-        isDark ? const Color(0xFF1A1A1A) : const Color(0xFF212121);
-
-    final menuItems = [
-      {'label': '首页', 'icon': Icons.flash_on},
-      {'label': '日历', 'icon': Icons.calendar_month},
-      {'label': 'AI枢纽', 'icon': Icons.hub},
-      {'label': '设置', 'icon': Icons.settings},
+  Widget _sidebar(bool isDark, bool med, double w) {
+    final p = Theme.of(context).colorScheme.primary;
+    final items = [
+      {'label': 'Home', 'icon': Icons.flash_on},
+      {'label': 'CRM', 'icon': Icons.people},
+      {'label': 'Calendar', 'icon': Icons.calendar_month},
+      {'label': 'AI Hub', 'icon': Icons.hub},
+      {'label': 'Settings', 'icon': Icons.settings},
     ];
-
     return Container(
-      width: width,
+      width: w,
       height: double.infinity,
-      color: sidebarBgColor,
-      padding:
-          EdgeInsets.symmetric(vertical: 24, horizontal: isMedium ? 8 : 16),
+      color: isDark ? const Color(0xFF1A1A1A) : const Color(0xFF212121),
+      padding: EdgeInsets.symmetric(vertical: 24, horizontal: med ? 8 : 16),
       child: Column(
-        crossAxisAlignment:
-            isMedium ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+        crossAxisAlignment: med ? CrossAxisAlignment.center : CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: isMedium
-                ? const EdgeInsets.only(bottom: 32, top: 8)
-                : const EdgeInsets.only(left: 12, bottom: 32, top: 8),
+            padding: med ? const EdgeInsets.only(bottom: 32, top: 8) : const EdgeInsets.only(left: 12, bottom: 32, top: 8),
             child: Container(
-              width: isMedium ? 38 : 46,
-              height: isMedium ? 38 : 46,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFF6B6B),
-                borderRadius: BorderRadius.circular(isMedium ? 10 : 12),
-              ),
-              child: const Center(
-                child: Text(
-                  'L',
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900),
-                ),
-              ),
+              width: med ? 38 : 46,
+              height: med ? 38 : 46,
+              decoration: BoxDecoration(color: p, borderRadius: BorderRadius.circular(med ? 10 : 12)),
+              child: const Center(child: Text('L', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900))),
             ),
           ),
           Expanded(
             child: ListView.separated(
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: menuItems.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 10),
-              itemBuilder: (context, index) {
-                final bool isSelected = _currentIndex == index;
-                final item = menuItems[index];
-
+              itemCount: items.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (_, i) {
+                final sel = _cur == i;
+                final item = items[i];
                 return GestureDetector(
-                  onTap: () => setState(() => _currentIndex = index),
+                  onTap: () => setState(() => _cur = i),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
                     curve: Curves.easeInOut,
-                    padding: EdgeInsets.symmetric(
-                        horizontal: isMedium ? 0 : 16, vertical: 12),
+                    padding: EdgeInsets.symmetric(horizontal: med ? 0 : 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: isSelected
-                          ? const Color(0xFFFF6B6B).withValues(alpha: 0.15)
-                          : Colors.transparent,
+                      color: sel ? p.withValues(alpha: 0.15) : Colors.transparent,
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: isMedium
-                        ? Center(
-                            child: Icon(
-                              item['icon'] as IconData,
-                              color: isSelected
-                                  ? const Color(0xFFFF6B6B)
-                                  : Colors.grey[400],
-                              size: 22,
-                            ),
-                          )
-                        : Row(
-                            children: [
-                              Icon(
-                                item['icon'] as IconData,
-                                color: isSelected
-                                    ? const Color(0xFFFF6B6B)
-                                    : Colors.grey[400],
-                                size: 22,
-                              ),
-                              const SizedBox(width: 16),
-                              Text(
-                                item['label'] as String,
-                                style: TextStyle(
-                                  color: isSelected
-                                      ? const Color(0xFFFF6B6B)
-                                      : Colors.grey[300],
-                                  fontSize: 14,
-                                  fontWeight: isSelected
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                ),
-                              ),
-                            ],
-                          ),
+                    child: med
+                        ? Center(child: Icon(item['icon'] as IconData, color: sel ? p : Colors.grey[400], size: 22))
+                        : Row(children: [
+                            Icon(item['icon'] as IconData, color: sel ? p : Colors.grey[400], size: 22),
+                            const SizedBox(width: 16),
+                            Text(item['label'] as String, style: TextStyle(color: sel ? p : Colors.grey[300], fontSize: 14, fontWeight: sel ? FontWeight.bold : FontWeight.normal)),
+                          ]),
                   ),
                 );
               },
@@ -327,12 +245,12 @@ class _LocusHomePageState extends State<LocusHomePage> {
     );
   }
 
-  void _openQuickInputConsole(BuildContext context) {
+  void _openInput(BuildContext context) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => const QuickInputBottomSheet(),
+      builder: (_) => const QuickInputBottomSheet(),
     );
   }
 }
