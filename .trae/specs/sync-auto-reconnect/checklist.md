@@ -1,0 +1,9 @@
+- [x] `init()` 中有 `await _tryAutoConnect()` 调用
+- [x] `_tryAutoConnect()` 读取 `pb_server_url`/`pb_email`/`pb_password` 三个 key
+- [x] 凭证不全时直接 return，不抛异常
+- [x] 连接成功时 `_pbConnected = true` + `notifyListeners()`
+- [x] 连接失败时 `_pb?.dispose()` + `_pb = null`，静默处理
+- [x] `_tryAutoConnect` 不调用 `ensureCollections()`
+- [x] `_applySyncMode()` 在 `_tryAutoConnect()` 之后执行
+- [x] 设置页 ListenableBuilder 在 auto-reconnect 后正确显示 "Connected"
+- [x] `flutter analyze` 14 个既有 issue，零新增

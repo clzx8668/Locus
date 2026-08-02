@@ -51,6 +51,9 @@ class SyncService extends ChangeNotifier {
   DateTime? _lastSyncEndTime;
   static const _minSyncInterval = Duration(seconds: 10);
 
+  /// Guards against concurrent syncs — only one sync may run at a time.
+  bool _isSyncing = false;
+
   bool get _canSyncNow {
     if (_lastSyncEndTime == null) return true;
     return DateTime.now().difference(_lastSyncEndTime!) >= _minSyncInterval;
@@ -92,7 +95,36 @@ class SyncService extends ChangeNotifier {
       syncOnResume: savedResume != 'false',
       syncOnPause: savedPause != 'false',
     );
+
+    // Try auto-reconnect if previous credentials were saved
+    await _tryAutoConnect();
+
     _applySyncMode();
+  }
+
+  /// Silently attempt to reconnect using saved PocketBase credentials.
+  /// On success, sets [_pbConnected] and notifies listeners.
+  /// On failure, leaves [_pbConnected] as false — user can manually connect later.
+  Future<void> _tryAutoConnect() async {
+    final savedUrl = await db.getConfig('pb_server_url');
+    final savedEmail = await db.getConfig('pb_email');
+    final savedPassword = await db.getConfig('pb_password');
+    if (savedUrl == null || savedEmail == null || savedPassword == null) return;
+
+    try {
+      _pb = PocketBaseAdapter(serverUrl: savedUrl);
+      final authErr = await _pb!.auth(email: savedEmail, password: savedPassword);
+      if (authErr != null) return;
+      final healthy = await _pb!.healthCheck();
+      if (!healthy) return;
+      _pbConnected = true;
+      notifyListeners();
+      debugPrint('PB auto-reconnect: success ($savedUrl)');
+    } catch (e) {
+      debugPrint('PB auto-reconnect: failed ($e)');
+      _pb?.dispose();
+      _pb = null;
+    }
   }
 
   // ===========================================================================
@@ -336,15 +368,22 @@ class SyncService extends ChangeNotifier {
     bool? syncOnResume,
     bool? syncOnPause,
   }) async {
+    // Empty string → null: treats explicit empty as "clear this field"
+    final resolvedTime = scheduledTime != null
+        ? (scheduledTime.isEmpty ? null : scheduledTime)
+        : _autoConfig.scheduledTime;
+
     _autoConfig = AutoSyncConfig(
       intervalMinutes: intervalMinutes ?? _autoConfig.intervalMinutes,
-      scheduledTime: scheduledTime ?? _autoConfig.scheduledTime,
+      scheduledTime: resolvedTime,
       syncOnResume: syncOnResume ?? _autoConfig.syncOnResume,
       syncOnPause: syncOnPause ?? _autoConfig.syncOnPause,
     );
     await db.setConfig('pb_auto_interval', _autoConfig.intervalMinutes.toString());
-    if (_autoConfig.scheduledTime != null) {
+    if (_autoConfig.scheduledTime != null && _autoConfig.scheduledTime!.isNotEmpty) {
       await db.setConfig('pb_scheduled_time', _autoConfig.scheduledTime!);
+    } else {
+      await db.setConfig('pb_scheduled_time', '');
     }
     await db.setConfig('sync_on_resume', _autoConfig.syncOnResume.toString());
     await db.setConfig('sync_on_pause', _autoConfig.syncOnPause.toString());
@@ -355,8 +394,10 @@ class SyncService extends ChangeNotifier {
   /// Apply the current sync mode (start/stop timers as needed).
   void _applySyncMode() {
     _stopAutoTimer();
+    _stopDailyScheduler();
     if (_pbSyncMode == PbSyncMode.auto || _pbSyncMode == PbSyncMode.smart) {
       _startAutoTimer();
+      _startDailyScheduler();
     }
   }
 
@@ -382,7 +423,19 @@ class SyncService extends ChangeNotifier {
       return null;
     }
 
-    return await syncViaPocketBase();
+    // Concurrency guard — prevent overlapping syncs
+    if (_isSyncing) {
+      debugPrint('PB sync: already in progress, skipping');
+      if (fromUser) return 'Sync already in progress';
+      return null;
+    }
+
+    _isSyncing = true;
+    try {
+      return await syncViaPocketBase();
+    } finally {
+      _isSyncing = false;
+    }
   }
 
   // ===========================================================================
@@ -390,6 +443,7 @@ class SyncService extends ChangeNotifier {
   // ===========================================================================
 
   Timer? _autoTimer;
+  Timer? _scheduledTimer;
 
   void _startAutoTimer() {
     _stopAutoTimer();
@@ -404,11 +458,44 @@ class SyncService extends ChangeNotifier {
     _autoTimer = null;
   }
 
+  void _startDailyScheduler() {
+    _stopDailyScheduler();
+    final st = _autoConfig.scheduledTime;
+    if (st == null || st.isEmpty) return;
+    final parts = st.split(':');
+    if (parts.length != 2) return;
+    final h = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    if (h == null || m == null) return;
+
+    final now = DateTime.now();
+    var next = DateTime(now.year, now.month, now.day, h, m);
+    if (!next.isAfter(now)) next = next.add(const Duration(days: 1));
+    _scheduledTimer = Timer(next.difference(now), () {
+      triggerPbSync();
+      _startDailyScheduler(); // re-schedule for next day
+    });
+    debugPrint('PB daily: scheduled at $st, next in ${next.difference(now).inMinutes}min');
+  }
+
+  void _stopDailyScheduler() {
+    _scheduledTimer?.cancel();
+    _scheduledTimer = null;
+  }
+
   /// Disconnect from PocketBase.
   void disconnectPocketBase() {
+    _stopAutoTimer();
+    _stopDailyScheduler();
     _pb?.dispose();
     _pb = null;
     _pbConnected = false;
+    // Clear persisted credentials (fire-and-forget; no await in sync method)
+    db.batch((b) {
+      b.deleteWhere(db.appConfig, (t) => t.key.equals('pb_server_url'));
+      b.deleteWhere(db.appConfig, (t) => t.key.equals('pb_email'));
+      b.deleteWhere(db.appConfig, (t) => t.key.equals('pb_password'));
+    });
     notifyListeners();
   }
 }

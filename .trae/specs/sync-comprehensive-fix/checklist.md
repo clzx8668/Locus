@@ -1,0 +1,15 @@
+- [x] `SyncService` 有 `_isSyncing` 字段
+- [x] `triggerPbSync()` 入口检查 `_isSyncing`，冲突时 fromUser 返回提示
+- [x] `triggerPbSync()` 用 try-finally 设置/清除 `_isSyncing`
+- [x] `pullChanges()` 使用 `do-while (page <= totalPages)` 循环分页
+- [x] `fetchAll()` 使用分页循环且不吞异常
+- [x] `syncViaPocketBase` Step 0.5 的 catch 正确捕获 fetchAll 异常
+- [x] `_startDailyScheduler()` 计算下次触发时间并设置单次 Timer
+- [x] `_stopDailyScheduler()` 正确取消 Timer
+- [x] `_applySyncMode()` 中启停 daily scheduler
+- [x] `disconnectPocketBase()` 调用 `_stopAutoTimer()` + `_stopDailyScheduler()`
+- [x] `disconnectPocketBase()` 清除 pb_server_url/pb_email/pb_password 配置
+- [x] `setAutoConfig(scheduledTime: '')` 转换为 null
+- [x] 下拉刷新失败时显示 SnackBar
+- [x] 子页面 Clear 按钮调用 `setAutoConfig(scheduledTime: null)`
+- [x] `flutter analyze` 14 个既有 issue，零新增

@@ -41,7 +41,12 @@ class _LocusHomePageState extends State<LocusHomePage> {
     if (med) sidW = 70;
     final body = RefreshIndicator(
       onRefresh: () async {
-        await getIt<SyncService>().triggerPbSync(fromUser: true);
+        final result = await getIt<SyncService>().triggerPbSync(fromUser: true);
+        if (result != null && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(result), duration: const Duration(seconds: 3)),
+          );
+        }
       },
       child: IndexedStack(index: _cur, children: _pages),
     );

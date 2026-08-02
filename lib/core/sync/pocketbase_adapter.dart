@@ -198,7 +198,7 @@ class PocketBaseAdapter {
     }
   }
 
-  /// Pull all records from a collection.
+  /// Pull all records from a collection (paginated — handles >500 records).
   ///
   /// Note: Always fetches all records (full sync). For a personal app with
   /// limited data volume, full pulls are simpler and more reliable than
@@ -208,25 +208,41 @@ class PocketBaseAdapter {
     String collection,
     DateTime? since,
   ) async {
-    final url = '$serverUrl/api/collections/$collection/records?perPage=500';
-    debugPrint('PB pull: GET $url');
-    final response = await _dio.get(url, options: _authOpts);
-    _checkAuth(response);
-    final items = (response.data as Map)['items'] as List? ?? [];
-    return items.cast<Map<String, dynamic>>();
+    final allItems = <Map<String, dynamic>>[];
+    var page = 1;
+    var totalPages = 1;
+    do {
+      final url = '$serverUrl/api/collections/$collection/records?perPage=500&page=$page';
+      debugPrint('PB pull: GET $url');
+      final response = await _dio.get(url, options: _authOpts);
+      _checkAuth(response);
+      final data = response.data as Map;
+      final items = (data['items'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      allItems.addAll(items);
+      totalPages = data['totalPages'] as int? ?? 1;
+      page++;
+    } while (page <= totalPages);
+    return allItems;
   }
 
-  /// Fetch all records from a collection.
+  /// Fetch all records from a collection (paginated).
+  ///
+  /// Throws on network error — callers (e.g. sync auto-healing) can distinguish
+  /// "truly empty" from "failed to fetch" by catching the exception.
   Future<List<Map<String, dynamic>>> fetchAll(String collection) async {
-    try {
-      final url = '$serverUrl/api/collections/$collection/records?perPage=500';
+    final allItems = <Map<String, dynamic>>[];
+    var page = 1;
+    var totalPages = 1;
+    do {
+      final url = '$serverUrl/api/collections/$collection/records?perPage=500&page=$page';
       final response = await _dio.get(url, options: _authOpts);
-      final items = (response.data as Map)['items'] as List? ?? [];
-      return items.cast<Map<String, dynamic>>();
-    } catch (e) {
-      debugPrint('PB fetchAll error [$collection]: $e');
-      return [];
-    }
+      final data = response.data as Map;
+      final items = (data['items'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      allItems.addAll(items);
+      totalPages = data['totalPages'] as int? ?? 1;
+      page++;
+    } while (page <= totalPages);
+    return allItems;
   }
 
   // ---------------------------------------------------------------------------

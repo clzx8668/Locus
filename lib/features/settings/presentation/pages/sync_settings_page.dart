@@ -166,7 +166,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
           Padding(
             padding: const EdgeInsets.only(left: 52, right: 14, bottom: 10),
             child: TextButton(
-              onPressed: () => ss.setAutoConfig(scheduledTime: ''),
+              onPressed: () => ss.setAutoConfig(scheduledTime: null),
               style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8), minimumSize: Size.zero),
               child: const Text('Clear', style: TextStyle(fontSize: 11)),
             ),
