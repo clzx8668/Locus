@@ -1,0 +1,8 @@
+- [x] `setPbSyncMode()` 末尾有 `notifyListeners()` 调用
+- [x] `setAutoConfig()` 末尾有 `notifyListeners()` 调用
+- [x] 子页面 SegmentedButton 模式切换 UI 即时响应
+- [x] 子页面 ChoiceChip 频率选择 UI 即时响应
+- [x] 子页面 SwitchListTile 开关切换 UI 即时响应
+- [x] 子页面 TimePicker 定时时间 UI 即时响应
+- [x] 主设置页返回后模式摘要即时正确
+- [x] `flutter analyze` 零新增 issue

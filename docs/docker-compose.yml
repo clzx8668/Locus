@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  pocketbase:
+    image: ghcr.io/muchdogesec/pocketbase:latest
+    container_name: pocketbase
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./pb_data:/pb_data
+      - ./pb_public:/pb_public
+    restart: unless-stopped
+    healthcheck:
+      test:
+        ["CMD", "wget", "-q", "--spider", "http://10.200.245.59:8090/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    environment:
+      - TZ=Asia/Shanghai

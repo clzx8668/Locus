@@ -12,6 +12,7 @@ import '../../../core/vault/fts_index_service.dart';
 import '../../../core/services/embedding_service.dart';
 import 'chat_history_search_page.dart';
 import '../../memory/presentation/long_term_memory_page.dart';
+import 'reference_parser.dart';
 
 class ChatBubble { final String text; final bool isUser; ChatBubble({required this.text, required this.isUser}); }
 
@@ -65,13 +66,21 @@ class _ChatPageState extends State<ChatPage> {
     if (baseUrl.endsWith('/')) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
     final localContext = await _gatherContext(text);
     final memories = await db.getAllMemoryTexts();
-    String systemPrompt = 'You are Locus, a local intelligent assistant. Answer professionally with Markdown.';
+    String systemPrompt = '''You are Locus, a local intelligent assistant. Answer professionally with Markdown.
+
+When referencing sources from the provided [Local Context], mark them with [ref:NAME] where NAME is the contact name, document title, or note identifier. Example: "According to [ref:张三]'s recent activity..."
+
+When presenting structured data (contacts, deals, tasks, etc.), you can reference them inline: "You have 3 open deals: [ref:deal_1], [ref:deal_2], [ref:deal_3]".
+
+Do NOT use [ref:xxx] for general concepts or things not found in the context.''';
     if (memories.isNotEmpty) systemPrompt += '\n\n[My Core Facts]:\n${memories.map((m) => '- $m').join('\n')}';
     if (localContext.isNotEmpty) systemPrompt += '\n\n[Local Context]:\n$localContext';
     systemPrompt += '\n\n[Special]: If I ask you to remember something, end with [SAVE_MEMORY: fact].';
     List<Map<String, dynamic>> apiMessages = [{'role': 'system', 'content': systemPrompt}];
     final recent = _messages.length > 10 ? _messages.sublist(_messages.length - 10) : _messages;
-    for (var m in recent) apiMessages.add({'role': m.isUser ? 'user' : 'assistant', 'content': m.text});
+    for (var m in recent) {
+      apiMessages.add({'role': m.isUser ? 'user' : 'assistant', 'content': m.text});
+    }
     try {
       final response = await _dio.post('$baseUrl/chat/completions', options: Options(headers: {'Authorization': 'Bearer $apiKey', 'Content-Type': 'application/json', 'Accept': 'text/event-stream'}, responseType: ResponseType.stream, sendTimeout: const Duration(seconds: 30), receiveTimeout: const Duration(seconds: 60)), data: {'model': modelName, 'messages': apiMessages, 'temperature': 0.7, 'stream': true});
       if (mounted) setState(() { _isAiThinking = false; _messages.add(ChatBubble(text: "", isUser: false)); });
@@ -83,7 +92,7 @@ class _ChatPageState extends State<ChatPage> {
           if (ds == '[DONE]') {
             final mm = RegExp(r'\[SAVE_MEMORY:\s*(.*?)\]').firstMatch(cur);
             if (mm != null && mm.group(1)!.trim().isNotEmpty) { await db.addMemory(mm.group(1)!.trim(), tags: 'AI-auto'); cur = cur.replaceAll(RegExp(r'\[SAVE_MEMORY:\s*(.*?)\]'), '').trim(); }
-            if (_currentSessionId == null) _currentSessionId = await db.createSession(text.length > 20 ? '${text.substring(0, 20)}...' : text);
+            _currentSessionId ??= await db.createSession(text.length > 20 ? '${text.substring(0, 20)}...' : text);
             await db.insertMessage(_currentSessionId!, 'user', text); await db.insertMessage(_currentSessionId!, 'assistant', cur);
             _writeChatLog(text, cur); break;
           }
@@ -105,6 +114,18 @@ class _ChatPageState extends State<ChatPage> {
   void _scrollToBottom() { WidgetsBinding.instance.addPostFrameCallback((_) { if (_scrollController.hasClients) _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 300), curve: Curves.easeOut); }); }
   void _startNewConversation() { setState(() { _currentSessionId = null; _messages.clear(); _messages.add(ChatBubble(text: "New conversation. How can I help?", isUser: false)); }); _focusNode.requestFocus(); }
   void _loadSession(int sid) async { setState(() { _isAiThinking = true; _messages.clear(); }); final h = await db.getMessagesForSession(sid); if (mounted) { setState(() { _currentSessionId = sid; _messages.addAll(h.map((m) => ChatBubble(text: m.content, isUser: m.role == 'user'))); _isAiThinking = false; }); WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom()); } }
+
+  void _onRefTap(String refId) {
+    debugPrint('Reference tapped: $refId');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Reference: $refId'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   @override void dispose() { _textController.dispose(); _scrollController.dispose(); _focusNode.dispose(); super.dispose(); }
 
   @override
@@ -143,7 +164,7 @@ class _ChatPageState extends State<ChatPage> {
     return Padding(padding: const EdgeInsets.only(bottom: 16), child: Row(mainAxisAlignment: msg.isUser ? MainAxisAlignment.end : MainAxisAlignment.start, crossAxisAlignment: CrossAxisAlignment.start, children: [
       if (!msg.isUser) CircleAvatar(radius: 16, backgroundColor: (isDark ? Colors.blueGrey[700] : Colors.blueGrey[100])!, child: Icon(Icons.smart_toy_outlined, size: 18, color: isDark ? Colors.white60 : Colors.blueGrey)),
       const SizedBox(width: 10),
-      Flexible(child: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), decoration: BoxDecoration(color: msg.isUser ? userBubble : aiBubble, borderRadius: BorderRadius.only(topLeft: const Radius.circular(16), topRight: const Radius.circular(16), bottomLeft: Radius.circular(msg.isUser ? 16 : 4), bottomRight: Radius.circular(msg.isUser ? 4 : 16))), child: msg.isUser ? SelectableText(msg.text, style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4)) : MarkdownBody(data: msg.text, selectable: true, styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(p: TextStyle(color: aiText, fontSize: 15, height: 1.5), h1: TextStyle(color: aiText, fontSize: 20, fontWeight: FontWeight.bold), h2: TextStyle(color: aiText, fontSize: 18, fontWeight: FontWeight.bold), code: TextStyle(color: isDark ? Colors.orange[300] : Colors.red[800], fontFamily: 'monospace', fontSize: 14), codeblockDecoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.grey[100]!, borderRadius: BorderRadius.circular(8), border: Border.all(color: isDark ? Colors.white10 : Colors.grey[300]!)), tableBorder: TableBorder.all(color: isDark ? Colors.white24 : Colors.grey[300]!, width: 1))))),
+      Flexible(child: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), decoration: BoxDecoration(color: msg.isUser ? userBubble : aiBubble, borderRadius: BorderRadius.only(topLeft: const Radius.circular(16), topRight: const Radius.circular(16), bottomLeft: Radius.circular(msg.isUser ? 16 : 4), bottomRight: Radius.circular(msg.isUser ? 4 : 16))), child: msg.isUser ? SelectableText(msg.text, style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4)) : MarkdownBody(data: msg.text, selectable: true, inlineSyntaxes: ReferenceParser.inlineSyntaxes, builders: ReferenceParser.getMarkdownBuilders(onTap: _onRefTap), styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(p: TextStyle(color: aiText, fontSize: 15, height: 1.5), h1: TextStyle(color: aiText, fontSize: 20, fontWeight: FontWeight.bold), h2: TextStyle(color: aiText, fontSize: 18, fontWeight: FontWeight.bold), code: TextStyle(color: isDark ? Colors.orange[300] : Colors.red[800], fontFamily: 'monospace', fontSize: 14), codeblockDecoration: BoxDecoration(color: isDark ? Colors.black26 : Colors.grey[100]!, borderRadius: BorderRadius.circular(8), border: Border.all(color: isDark ? Colors.white10 : Colors.grey[300]!)), tableBorder: TableBorder.all(color: isDark ? Colors.white24 : Colors.grey[300]!, width: 1))))),
       const SizedBox(width: 10),
       if (msg.isUser) CircleAvatar(radius: 16, backgroundColor: (isDark ? const Color(0xFFFF6B6B).withValues(alpha: 0.2) : Colors.black12), child: Icon(Icons.person_outline, size: 18, color: isDark ? const Color(0xFFFF6B6B) : Colors.black87)),
     ]));

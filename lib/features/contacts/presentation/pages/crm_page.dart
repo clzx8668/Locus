@@ -1,276 +1,1645 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import '../../../../core/di/service_locator.dart';
 import 'package:drift/drift.dart' hide Column;
+
 import '../../../../core/database/database.dart';
+import '../../../../core/di/service_locator.dart';
+import '../widgets/crm_design.dart';
+import '../widgets/crm_table_schema.dart';
+import '../../../../core/sync/sync_service.dart';
+import 'company_detail_page.dart';
+import 'contact_detail_page.dart';
+import 'deal_detail_page.dart';
 
 class CrmPage extends StatefulWidget {
   const CrmPage({super.key});
+
   @override
   State<CrmPage> createState() => _CrmPageState();
 }
 
 class _CrmPageState extends State<CrmPage> with SingleTickerProviderStateMixin {
-  AppDatabase get db => getIt<AppDatabase>();
-  late TabController _tabCtrl;
+  late final TabController _tab;
 
   @override
-  void initState() { super.initState(); _tabCtrl = TabController(length: 3, vsync: this); }
+  void initState() {
+    super.initState();
+    _tab = TabController(length: 3, vsync: this);
+  }
+
   @override
-  void dispose() { _tabCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _tab.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF6F6F6),
+    final dark = crmIsDark(context);
+    final primary = Theme.of(context).colorScheme.primary;
+    return ValueListenableBuilder<int>(
+      valueListenable: getIt<SyncService>().syncTick,
+      builder: (_, tick, __) => Scaffold(
+      key: ValueKey('sync_$tick'),
+      backgroundColor: crmPageBackground(dark),
       appBar: AppBar(
         title: const Text('CRM'),
         elevation: 0,
         backgroundColor: Colors.transparent,
         scrolledUnderElevation: 0,
-        bottom: TabBar(
-          controller: _tabCtrl,
-          indicatorColor: Theme.of(context).colorScheme.primary,
-          labelColor: Theme.of(context).colorScheme.primary,
-          unselectedLabelColor: isDark ? Colors.white38 : Colors.black45,
-          tabs: const [
-            Tab(text: 'Contacts'),
-            Tab(text: 'Companies'),
-            Tab(text: 'Pipeline'),
-          ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(46),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Container(
+              height: 38,
+              decoration: BoxDecoration(
+                color: dark ? const Color(0xFF171717) : Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: crmBorderColor(dark)),
+              ),
+              child: TabBar(
+                controller: _tab,
+                dividerColor: Colors.transparent,
+                indicator: BoxDecoration(
+                  color: primary.withValues(alpha: dark ? 0.24 : 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                indicatorPadding: const EdgeInsets.all(3),
+                labelColor: primary,
+                labelStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+                unselectedLabelColor: crmMutedTextColor(dark),
+                unselectedLabelStyle: const TextStyle(fontSize: 12),
+                tabs: const [
+                  Tab(text: 'Contacts'),
+                  Tab(text: 'Companies'),
+                  Tab(text: 'Pipeline'),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
-      body: TabBarView(controller: _tabCtrl, children: const [
-        _ContactsTab(),
-        _CompaniesTab(),
-        _DealsTab(),
-      ]),
+      body: TabBarView(
+        controller: _tab,
+        children: const [
+          _ContactsView(),
+          _CompaniesView(),
+          _PipelineView(),
+        ],
+      ),
+      ),
     );
   }
 }
 
-// ==================== Contacts Tab ====================
-class _ContactsTab extends StatefulWidget { const _ContactsTab(); @override State<_ContactsTab> createState() => _ContactsTabState(); }
-class _ContactsTabState extends State<_ContactsTab> {
-  AppDatabase get db => getIt<AppDatabase>();
-  final _searchCtrl = TextEditingController();
-  final _nameCtrl = TextEditingController();
-  final _companyCtrl = TextEditingController();
-  String _q = '';
+bool _isNarrow(BuildContext context) => MediaQuery.of(context).size.width < 760;
 
-  @override void dispose() { _searchCtrl.dispose(); _nameCtrl.dispose(); _companyCtrl.dispose(); super.dispose(); }
+String _formatShortDate(DateTime date) {
+  final month = date.month.toString().padLeft(2, '0');
+  final day = date.day.toString().padLeft(2, '0');
+  return '$month/$day';
+}
+
+class _MetricChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool dark;
+
+  const _MetricChip({
+    required this.label,
+    required this.value,
+    required this.dark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: dark ? const Color(0xFF171717) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: crmBorderColor(dark)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: crmBodyTextColor(dark),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              color: crmMutedTextColor(dark),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PanelEmptyState extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final bool dark;
+
+  const _PanelEmptyState({
+    required this.title,
+    required this.icon,
+    required this.dark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 44, color: crmMutedTextColor(dark)),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: TextStyle(fontSize: 13, color: crmMutedTextColor(dark)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContactsView extends StatefulWidget {
+  const _ContactsView();
+
+  @override
+  State<_ContactsView> createState() => _ContactsViewState();
+}
+
+class _ContactsViewState extends State<_ContactsView> {
+  AppDatabase get db => getIt<AppDatabase>();
+
+  final _search = TextEditingController();
+  String _query = '';
+  final Set<int> _selectedIds = {};
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  bool get _hasSelection => _selectedIds.isNotEmpty;
+
+  void _toggleSelect(int id) {
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+      } else {
+        _selectedIds.add(id);
+      }
+    });
+  }
+
+  void _selectAll(List<Contact> contacts) {
+    setState(() {
+      if (_selectedIds.length == contacts.length) {
+        _selectedIds.clear();
+      } else {
+        _selectedIds.addAll(contacts.map((c) => c.id));
+      }
+    });
+  }
+
+  void _clearSelection() => setState(() => _selectedIds.clear());
 
   void _add() {
-    showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('New Contact'), content: Column(mainAxisSize: MainAxisSize.min, children: [
-      TextField(controller: _nameCtrl, decoration: const InputDecoration(labelText: 'Name *', border: OutlineInputBorder(), isDense: true)), const SizedBox(height: 10),
-      TextField(controller: _companyCtrl, decoration: const InputDecoration(labelText: 'Company', border: OutlineInputBorder(), isDense: true)),
-    ]), actions: [
-      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-      ElevatedButton(onPressed: () async { if (_nameCtrl.text.trim().isEmpty) return; await db.addContact(name: _nameCtrl.text.trim(), company: _companyCtrl.text.trim().isEmpty ? null : _companyCtrl.text.trim()); _nameCtrl.clear(); _companyCtrl.clear(); if (ctx.mounted) Navigator.pop(ctx); }, style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Colors.white), child: const Text('Add')),
-    ]));
+    final name = TextEditingController();
+    final company = TextEditingController();
+    final phone = TextEditingController();
+    final email = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding:
+              EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'New Contact',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: name,
+                  decoration: const InputDecoration(
+                    labelText: 'Name *',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: company,
+                  decoration: const InputDecoration(
+                    labelText: 'Company',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Phone',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: email,
+                  decoration: const InputDecoration(
+                    labelText: 'Email',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      if (name.text.trim().isEmpty) return;
+                      await db.addContact(
+                        name: name.text.trim(),
+                        company: company.text.trim().isEmpty
+                            ? null
+                            : company.text.trim(),
+                        phone: phone.text.trim().isEmpty
+                            ? null
+                            : phone.text.trim(),
+                        email: email.text.trim().isEmpty
+                            ? null
+                            : email.text.trim(),
+                      );
+                      if (ctx.mounted) Navigator.pop(ctx);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text('Add Contact'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return StreamBuilder<List<Contact>>(stream: db.watchAllContacts(), builder: (ctx, snap) {
-      final contacts = snap.data ?? [];
-      return Column(children: [
-        // Stats bar
-        _statsBar(contacts, isDark),
-        // Search
-        Padding(padding: const EdgeInsets.fromLTRB(14, 0, 14, 8), child: TextField(controller: _searchCtrl, onChanged: (v) => setState(() => _q = v), style: TextStyle(fontSize: 13, color: isDark ? Colors.white : Colors.black87), decoration: InputDecoration(hintText: 'Search contacts...', hintStyle: TextStyle(fontSize: 13, color: isDark ? Colors.white30 : Colors.grey[500]), prefixIcon: Icon(Icons.search_rounded, size: 18, color: isDark ? Colors.white30 : Colors.grey[500]), border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none), filled: true, fillColor: isDark ? const Color(0xFF2C2C2C) : Colors.white, contentPadding: const EdgeInsets.symmetric(vertical: 0), isDense: true))),
-        // List
-        Expanded(child: _q.isEmpty ? _buildList(contacts, isDark) : _buildList(contacts.where((c) => c.name.toLowerCase().contains(_q.toLowerCase()) || (c.company?.toLowerCase().contains(_q.toLowerCase()) ?? false)).toList(), isDark)),
-        // FAB
-        Padding(padding: const EdgeInsets.only(bottom: 12), child: FloatingActionButton.extended(onPressed: _add, backgroundColor: Theme.of(context).colorScheme.primary, icon: const Icon(Icons.add, color: Colors.white, size: 20), label: const Text('Add Contact', style: TextStyle(color: Colors.white, fontSize: 13)))),
-      ]);
-    });
-  }
-
-  Widget _statsBar(List<Contact> contacts, bool isDark) {
-    final total = contacts.length;
-    final thisWeek = contacts.where((c) => c.createdAt.isAfter(DateTime.now().subtract(const Duration(days: 7)))).length;
-    return Padding(padding: const EdgeInsets.fromLTRB(14, 8, 14, 4), child: Row(children: [
-      _statChip('Total', '$total', isDark),
-      const SizedBox(width: 8),
-      _statChip('This Week', '$thisWeek', isDark),
-      const SizedBox(width: 8),
-      _statChip('Active', '$total', isDark),
-    ]));
-  }
-
-  Widget _statChip(String label, String value, bool isDark) => Expanded(child: Container(padding: const EdgeInsets.symmetric(vertical: 10), decoration: BoxDecoration(color: isDark ? const Color(0xFF1E1E1E) : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: isDark ? Colors.white10 : Colors.black12)), child: Column(children: [Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), const SizedBox(height: 2), Text(label, style: TextStyle(fontSize: 10, color: isDark ? Colors.white38 : Colors.black45))])));
-
-  Widget _buildList(List<Contact> contacts, bool isDark) {
-    if (contacts.isEmpty) return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.people_outline, size: 48, color: isDark ? Colors.white24 : Colors.grey[400]), const SizedBox(height: 8), Text('No contacts', style: TextStyle(color: isDark ? Colors.white38 : Colors.grey[500]))]));
-    return ListView.builder(padding: const EdgeInsets.fromLTRB(14, 0, 14, 8), itemCount: contacts.length, itemBuilder: (_, i) => _contactTile(contacts[i], isDark));
-  }
-
-  Widget _contactTile(Contact c, bool isDark) {
-    final alias = _parseAliases(c.aliases);
-    return Card(color: isDark ? const Color(0xFF1E1E1E) : Colors.white, margin: const EdgeInsets.only(bottom: 6), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: isDark ? Colors.white10 : Colors.black12)), child: ListTile(
-      leading: CircleAvatar(radius: 18, backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12), child: Text(c.name[0].toUpperCase(), style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 14))),
-      title: Text(c.name, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: isDark ? Colors.white : Colors.black87)),
-      subtitle: c.company != null ? Text(c.company!, style: TextStyle(fontSize: 11, color: isDark ? Colors.white30 : Colors.grey[500])) : null,
-      trailing: Row(mainAxisSize: MainAxisSize.min, children: [if (alias.isNotEmpty) Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(4)), child: Text(alias.first, style: TextStyle(fontSize: 9, color: Theme.of(context).colorScheme.primary))), const SizedBox(width: 4), Icon(Icons.chevron_right, size: 16, color: isDark ? Colors.white24 : Colors.grey[400])]),
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ContactDetailPage(contactId: c.id))),
-    ));
-  }
-
-  List<String> _parseAliases(String s) { try { final d = jsonDecode(s); if (d is List) return d.cast<String>(); } catch (_) {} return []; }
-}
-
-// ==================== Companies Tab ====================
-class _CompaniesTab extends StatefulWidget { const _CompaniesTab(); @override State<_CompaniesTab> createState() => _CompaniesTabState(); }
-class _CompaniesTabState extends State<_CompaniesTab> {
-  AppDatabase get db => getIt<AppDatabase>();
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return StreamBuilder<List<Contact>>(stream: db.watchAllContacts(), builder: (ctx, snap) {
-      final contacts = snap.data ?? [];
-      // Group by company
-      final Map<String, List<Contact>> groups = {};
-      for (final c in contacts) {
-        final key = c.company ?? 'No Company';
-        groups.putIfAbsent(key, () => []).add(c);
-      }
-      final entries = groups.entries.toList();
-
-      if (entries.isEmpty) return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.business_outlined, size: 48, color: isDark ? Colors.white24 : Colors.grey[400]), const SizedBox(height: 8), Text('No companies', style: TextStyle(color: isDark ? Colors.white38 : Colors.grey[500]))]));
-
-      return ListView.builder(padding: const EdgeInsets.fromLTRB(14, 12, 14, 8), itemCount: entries.length, itemBuilder: (_, i) {
-        final e = entries[i];
-        return Card(color: isDark ? const Color(0xFF1E1E1E) : Colors.white, margin: const EdgeInsets.only(bottom: 8), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: isDark ? Colors.white10 : Colors.black12)), child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [Text(e.key, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: isDark ? Colors.white : Colors.black87)), const Spacer(), Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(6)), child: Text('${e.value.length}', style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w600)))]),
-          const SizedBox(height: 8),
-          ...e.value.take(5).map((c) => Padding(padding: const EdgeInsets.only(top: 4), child: Row(children: [Icon(Icons.person_outline, size: 14, color: isDark ? Colors.white38 : Colors.grey[500]), const SizedBox(width: 6), Text('${c.name}${c.role != null ? '  ${c.role}' : ''}', style: TextStyle(fontSize: 13, color: isDark ? Colors.white70 : Colors.black54))]))),
-          if (e.value.length > 5) Padding(padding: const EdgeInsets.only(top: 6), child: Text('+${e.value.length - 5} more...', style: TextStyle(fontSize: 11, color: isDark ? Colors.white30 : Colors.grey[500]))),
-        ])));
-      });
-    });
-  }
-}
-
-// ==================== Deals Tab (Pipeline Kanban) ====================
-class _DealsTab extends StatefulWidget { const _DealsTab(); @override State<_DealsTab> createState() => _DealsTabState(); }
-class _DealsTabState extends State<_DealsTab> {
-  AppDatabase get db => getIt<AppDatabase>();
-  static const stages = ['lead', 'contacted', 'quoting', 'negotiation', 'won', 'lost'];
-  static const stageLabels = {'lead': 'Leads', 'contacted': 'Contacted', 'quoting': 'Quoting', 'negotiation': 'Negotiation', 'won': 'Won', 'lost': 'Lost'};
-  static const stageColors = {'lead': Colors.grey, 'contacted': Colors.blue, 'quoting': Colors.orange, 'negotiation': Colors.purple, 'won': Colors.green, 'lost': Colors.red};
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return StreamBuilder<List<Deal>>(stream: (db.select(db.deals)..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).watch(), builder: (ctx, snap) {
-      final deals = snap.data ?? [];
-      return SingleChildScrollView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.all(12), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: stages.map((stage) {
-        final stageDeals = deals.where((d) => d.stage == stage).toList();
-        final color = stageColors[stage]!;
-        return Container(width: 220, margin: const EdgeInsets.only(right: 10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Container(width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12), decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)), child: Row(children: [
-            Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-            const SizedBox(width: 6),
-            Text(stageLabels[stage]!, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color)),
-            const Spacer(),
-            Text('${stageDeals.length}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color)),
-          ])),
-          const SizedBox(height: 8),
-          if (stageDeals.isEmpty) Container(width: double.infinity, padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.grey[100]!, borderRadius: BorderRadius.circular(8)), child: Center(child: Text('Empty', style: TextStyle(fontSize: 11, color: isDark ? Colors.white24 : Colors.grey[400])))),
-          ...stageDeals.map((d) => FutureBuilder<Contact?>(future: db.getContact(d.contactId), builder: (_, cs) {
-            final c = cs.data;
-            return Card(color: isDark ? const Color(0xFF1E1E1E) : Colors.white, margin: const EdgeInsets.only(bottom: 6), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: isDark ? Colors.white10 : Colors.black12)), child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(d.title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: isDark ? Colors.white : Colors.black87)),
-              if (c != null) ...[const SizedBox(height: 4), Text(c.name, style: TextStyle(fontSize: 11, color: isDark ? Colors.white30 : Colors.grey[500]))],
-              if (d.value != null) ...[const SizedBox(height: 4), Text('\$${d.value!.toStringAsFixed(0)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.primary))],
-            ])));
-          })),
-        ]));
-      }).toList()));
-    });
-  }
-}
-
-// ==================== Contact Detail Page ====================
-class ContactDetailPage extends StatefulWidget {
-  final int contactId;
-  const ContactDetailPage({super.key, required this.contactId});
-  @override
-  State<ContactDetailPage> createState() => _ContactDetailPageState();
-}
-
-class _ContactDetailPageState extends State<ContactDetailPage> {
-  AppDatabase get db => getIt<AppDatabase>();
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dark = crmIsDark(context);
     final primary = Theme.of(context).colorScheme.primary;
-    final cardBg = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final narrow = _isNarrow(context);
+    return StreamBuilder<List<Contact>>(
+      stream: db.watchAllContacts(),
+      builder: (_, snapshot) {
+        final all = snapshot.data ?? const <Contact>[];
+        final filtered = _query.isEmpty
+            ? all
+            : all.where((contact) {
+                final q = _query.toLowerCase();
+                return contact.name.toLowerCase().contains(q) ||
+                    (contact.company?.toLowerCase().contains(q) ?? false) ||
+                    (contact.email?.toLowerCase().contains(q) ?? false);
+              }).toList();
+        final weekly = all
+            .where(
+              (c) => c.createdAt.isAfter(
+                DateTime.now().subtract(const Duration(days: 7)),
+              ),
+            )
+            .length;
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          floatingActionButton: _hasSelection
+              ? null
+              : FloatingActionButton(
+                  onPressed: _add,
+                  backgroundColor: primary,
+                  child: const Icon(Icons.add, color: Colors.white),
+                ),
+          body: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Column(
+              children: [
+                if (_hasSelection)
+                  CrmDeleteActionBar(
+                    selectedCount: _selectedIds.length,
+                    dark: dark,
+                    primary: primary,
+                    onCancel: _clearSelection,
+                    onDelete: () async {
+                      for (final id in _selectedIds) {
+                        await db.deleteContact(id);
+                      }
+                      _clearSelection();
+                    },
+                  ),
+                _toolbar(
+                  dark: dark,
+                  narrow: narrow,
+                  metrics: [
+                    _MetricChip(
+                      label: 'Contacts',
+                      value: all.length.toString(),
+                      dark: dark,
+                    ),
+                    _MetricChip(
+                      label: 'Added 7d',
+                      value: weekly.toString(),
+                      dark: dark,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: filtered.isEmpty
+                      ? _PanelEmptyState(
+                          title: all.isEmpty ? 'No contacts yet' : 'No matches',
+                          icon: Icons.people_outline,
+                          dark: dark,
+                        )
+                      : narrow
+                          ? _contactsMobile(filtered, dark, primary)
+                          : _contactsTable(filtered, dark, primary),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
-    return FutureBuilder<Contact?>(future: db.getContact(widget.contactId), builder: (ctx, snap) {
-      if (!snap.hasData || snap.data == null) return Scaffold(appBar: AppBar(title: const Text('Contact')), body: const Center(child: Text('Not found')));
-      final c = snap.data!;
-      final alias = _pa(c.aliases);
-      return Scaffold(
-        backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF6F6F6),
-        appBar: AppBar(title: Text(c.name), backgroundColor: Colors.transparent, scrolledUnderElevation: 0, actions: [IconButton(icon: const Icon(Icons.edit_outlined, size: 20), onPressed: () => _edit(c))]),
-        body: Column(children: [
-          // Info card
-          Container(margin: const EdgeInsets.fromLTRB(14, 0, 14, 12), padding: const EdgeInsets.all(18), decoration: BoxDecoration(color: cardBg, borderRadius: BorderRadius.circular(14)), child: Column(children: [
-            CircleAvatar(radius: 28, backgroundColor: primary.withValues(alpha: 0.12), child: Text(c.name[0].toUpperCase(), style: TextStyle(color: primary, fontWeight: FontWeight.bold, fontSize: 22))),
-            const SizedBox(height: 10), Text(c.name, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
-            if (c.company != null) Text('${c.company}${c.role != null ? '  ${c.role}' : ''}', style: TextStyle(fontSize: 12, color: isDark ? Colors.white38 : Colors.grey[500])),
-            if (c.phone != null || c.email != null) Padding(padding: const EdgeInsets.only(top: 10), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              if (c.phone != null) ...[Icon(Icons.phone_outlined, size: 13, color: isDark ? Colors.white38 : Colors.grey[500]), const SizedBox(width: 4), Text(c.phone!, style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey[600])), const SizedBox(width: 14)],
-              if (c.email != null) ...[Icon(Icons.email_outlined, size: 13, color: isDark ? Colors.white38 : Colors.grey[500]), const SizedBox(width: 4), Text(c.email!, style: TextStyle(fontSize: 12, color: isDark ? Colors.white54 : Colors.grey[600]))],
-            ])),
-            if (alias.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Wrap(spacing: 4, children: alias.map((a) => Container(padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2), decoration: BoxDecoration(color: primary.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(5)), child: Text(a, style: TextStyle(fontSize: 10, color: primary)))).toList())),
-          ])),
-          // Timeline
-          Padding(padding: const EdgeInsets.fromLTRB(18, 0, 18, 6), child: Row(children: [Icon(Icons.timeline, size: 14, color: isDark ? Colors.white38 : Colors.grey[500]), const SizedBox(width: 5), Text('Activity', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: isDark ? Colors.white38 : Colors.grey[500], letterSpacing: 0.5))])),
-          Expanded(child: StreamBuilder<List<Activity>>(stream: db.watchActivitiesForContact(widget.contactId), builder: (_, asnap) {
-            if (!asnap.hasData) return const Center(child: CircularProgressIndicator());
-            final acts = asnap.data!;
-            if (acts.isEmpty) return Center(child: Text('No activity yet', style: TextStyle(color: isDark ? Colors.white38 : Colors.grey[500])));
-            return ListView.builder(padding: const EdgeInsets.fromLTRB(14, 0, 14, 12), itemCount: acts.length, itemBuilder: (_, i) => _timeline(acts[i], isDark));
-          })),
-        ]),
+  Widget _toolbar({
+    required bool dark,
+    required bool narrow,
+    required List<Widget> metrics,
+  }) {
+    final search = Expanded(
+      child: CrmSearchField(
+        controller: _search,
+        onChanged: (value) => setState(() => _query = value.trim()),
+        dark: dark,
+        hintText: 'Search contacts...',
+      ),
+    );
+    final statWrap = Wrap(spacing: 8, runSpacing: 8, children: metrics);
+    if (narrow) {
+      return Column(
+        children: [
+          Row(children: [search]),
+          const SizedBox(height: 8),
+          Align(alignment: Alignment.centerLeft, child: statWrap),
+        ],
       );
+    }
+    return Row(
+      children: [
+        search,
+        const SizedBox(width: 12),
+        statWrap,
+      ],
+    );
+  }
+
+  Widget _contactsTable(List<Contact> list, bool dark, Color primary) {
+    final allSelected = _selectedIds.length == list.length;
+    final columns = crmContactColumns;
+    return CrmSurface(
+      dark: dark,
+      radius: 16,
+      child: CrmTableViewport(
+        minWidth: 860,
+        header: Container(
+          height: crmHeaderHeight,
+          padding: const EdgeInsets.symmetric(horizontal: crmCellPadding),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: crmBorderColor(dark)),
+            ),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 26,
+                child: GestureDetector(
+                  onTap: () => _selectAll(list),
+                  child: Icon(
+                    allSelected
+                        ? Icons.check_box_rounded
+                        : _selectedIds.isNotEmpty
+                            ? Icons.indeterminate_check_box_rounded
+                            : Icons.check_box_outline_blank_rounded,
+                    size: 16,
+                    color: _selectedIds.isNotEmpty
+                        ? primary
+                        : crmBorderColor(dark),
+                  ),
+                ),
+              ),
+              for (final col in columns.skip(1))
+                SizedBox(
+                  width: col.width,
+                  child: Align(
+                    alignment: col.textAlign == TextAlign.right
+                        ? Alignment.centerRight
+                        : Alignment.centerLeft,
+                    child:
+                        crmHeaderText(col.label, dark, sortable: col.sortable),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        body: Scrollbar(
+          thumbVisibility: true,
+          interactive: true,
+          child: ListView.separated(
+            padding: EdgeInsets.zero,
+            itemCount: list.length,
+            separatorBuilder: (_, __) => Divider(
+              height: 1,
+              thickness: 1,
+              color: crmBorderColor(dark),
+            ),
+            itemBuilder: (_, index) {
+              final contact = list[index];
+              final selected = _selectedIds.contains(contact.id);
+              return InkWell(
+                hoverColor: crmHoverColor(dark),
+                onTap: () {
+                  if (_hasSelection) {
+                    _toggleSelect(contact.id);
+                  } else {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            ContactDetailPage(contactId: contact.id),
+                      ),
+                    );
+                  }
+                },
+                child: Container(
+                  height: crmRowHeight,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: crmCellPadding),
+                  color: selected
+                      ? primary.withValues(alpha: dark ? 0.12 : 0.06)
+                      : Colors.transparent,
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 26,
+                        child: GestureDetector(
+                          onTap: () => _toggleSelect(contact.id),
+                          child: Icon(
+                            selected
+                                ? Icons.check_box_rounded
+                                : Icons.check_box_outline_blank_rounded,
+                            size: 16,
+                            color: selected ? primary : crmBorderColor(dark),
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 240,
+                        child: Row(
+                          children: [
+                            CrmAvatarBadge(seed: contact.name, accent: primary),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: crmBodyText(
+                                contact.name,
+                                dark,
+                                weight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(
+                        width: 180,
+                        child: contact.company == null ||
+                                contact.company!.trim().isEmpty
+                            ? crmMutedText('-', dark)
+                            : Align(
+                                alignment: Alignment.centerLeft,
+                                child: CrmChip(
+                                  label: contact.company!,
+                                  dark: dark,
+                                ),
+                              ),
+                      ),
+                      SizedBox(
+                        width: 140,
+                        child: crmMutedText(contact.phone ?? '-', dark),
+                      ),
+                      Expanded(
+                        child: crmMutedText(contact.email ?? '-', dark),
+                      ),
+                      SizedBox(
+                        width: 90,
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: crmMutedText(
+                            _formatShortDate(contact.updatedAt),
+                            dark,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _contactsMobile(List<Contact> list, bool dark, Color primary) {
+    return Column(
+      children: [
+        if (_hasSelection)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: CrmDeleteActionBar(
+              selectedCount: _selectedIds.length,
+              dark: dark,
+              primary: primary,
+              onCancel: _clearSelection,
+              onDelete: () async {
+                for (final id in _selectedIds) {
+                  await db.deleteContact(id);
+                }
+                _clearSelection();
+              },
+            ),
+          ),
+        Expanded(
+          child: Scrollbar(
+            thumbVisibility: true,
+            interactive: true,
+            child: ListView.builder(
+              padding: const EdgeInsets.only(bottom: 84),
+              itemCount: list.length,
+              itemBuilder: (_, index) {
+                final contact = list[index];
+                final selected = _selectedIds.contains(contact.id);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: CrmSwipeDismissible(
+                    dark: dark,
+                    onDelete: () async {
+                      await db.deleteContact(contact.id);
+                    },
+                    child: CrmSurface(
+                      dark: dark,
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 2),
+                        leading: CrmAvatarBadge(
+                            seed: contact.name, accent: primary, size: 36),
+                        title: crmBodyText(contact.name, dark,
+                            weight: FontWeight.w600),
+                        subtitle: Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              if ((contact.company ?? '').isNotEmpty)
+                                CrmChip(label: contact.company!, dark: dark),
+                              if ((contact.email ?? '').isNotEmpty)
+                                CrmChip(label: contact.email!, dark: dark),
+                            ],
+                          ),
+                        ),
+                        trailing: selected
+                            ? Icon(
+                                Icons.check_circle_rounded,
+                                size: 20,
+                                color: primary,
+                              )
+                            : Icon(
+                                Icons.chevron_right_rounded,
+                                size: 18,
+                                color: crmMutedTextColor(dark),
+                              ),
+                        onTap: () {
+                          if (_hasSelection) {
+                            _toggleSelect(contact.id);
+                          } else {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    ContactDetailPage(contactId: contact.id),
+                              ),
+                            );
+                          }
+                        },
+                        onLongPress: () => _toggleSelect(contact.id),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CompanySummary {
+  final String name;
+  final List<Contact> contacts;
+
+  const _CompanySummary({required this.name, required this.contacts});
+
+  DateTime get latestUpdated =>
+      contacts.map((contact) => contact.updatedAt).fold<DateTime>(
+            contacts.first.updatedAt,
+            (latest, date) => date.isAfter(latest) ? date : latest,
+          );
+}
+
+class _CompaniesView extends StatefulWidget {
+  const _CompaniesView();
+
+  @override
+  State<_CompaniesView> createState() => _CompaniesViewState();
+}
+
+class _CompaniesViewState extends State<_CompaniesView> {
+  AppDatabase get db => getIt<AppDatabase>();
+
+  final _search = TextEditingController();
+  String _query = '';
+
+  final Set<String> _selectedCompanyNames = {};
+
+  bool get _hasCompanySelection => _selectedCompanyNames.isNotEmpty;
+
+  void _toggleCompanySelect(String name) {
+    setState(() {
+      if (_selectedCompanyNames.contains(name)) {
+        _selectedCompanyNames.remove(name);
+      } else {
+        _selectedCompanyNames.add(name);
+      }
     });
   }
 
-  Widget _timeline(Activity a, bool isDark) {
-    final icons = {'call': Icons.phone_in_talk, 'visit': Icons.meeting_room, 'email': Icons.email, 'quote': Icons.description, 'contract': Icons.article, 'note': Icons.note};
-    final colors = {'call': Colors.blue, 'visit': Colors.green, 'email': Colors.orange, 'quote': Colors.purple, 'contract': const Color(0xFFFF6B6B), 'note': Colors.grey};
-    final icon = icons[a.type] ?? Icons.circle;
-    final color = colors[a.type] ?? Colors.grey;
-    final t = '${a.createdAt.month}/${a.createdAt.day} ${a.createdAt.hour.toString().padLeft(2, '0')}:${a.createdAt.minute.toString().padLeft(2, '0')}';
-    return Padding(padding: const EdgeInsets.only(bottom: 2), child: IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      SizedBox(width: 28, child: Column(children: [Container(width: 24, height: 24, decoration: BoxDecoration(color: color.withValues(alpha: 0.12), shape: BoxShape.circle), child: Icon(icon, size: 12, color: color))])),
-      Expanded(child: Card(color: isDark ? const Color(0xFF1E1E1E) : Colors.white, margin: const EdgeInsets.only(bottom: 6), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: isDark ? Colors.white10 : Colors.black12)), child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [Text(a.type.toUpperCase(), style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: color, letterSpacing: 0.5)), const Spacer(), Text(t, style: TextStyle(fontSize: 10, color: isDark ? Colors.white24 : Colors.grey[500]))]),
-        const SizedBox(height: 4), Text(a.content, style: TextStyle(fontSize: 13, height: 1.4, color: isDark ? Colors.white70 : Colors.black87)),
-      ])))),
-    ])));
+  void _clearCompanySelection() =>
+      setState(() => _selectedCompanyNames.clear());
+
+  void _addCompany() {
+    final name = TextEditingController();
+    final contactName = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding:
+              EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'New Company',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: name,
+                  decoration: const InputDecoration(
+                    labelText: 'Company Name *',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: contactName,
+                  decoration: const InputDecoration(
+                    labelText: 'Contact Person',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      if (name.text.trim().isEmpty) return;
+                      await db.addContact(
+                        name: contactName.text.trim().isEmpty
+                            ? name.text.trim()
+                            : contactName.text.trim(),
+                        company: name.text.trim(),
+                      );
+                      if (ctx.mounted) Navigator.pop(ctx);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    child: const Text('Add Company'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
-  void _edit(Contact c) {
-    final n = TextEditingController(text: c.name), co = TextEditingController(text: c.company ?? ''), ph = TextEditingController(text: c.phone ?? ''), em = TextEditingController(text: c.email ?? ''), al = TextEditingController(text: _pa(c.aliases).join(', '));
-    showDialog(context: context, builder: (ctx) => AlertDialog(title: const Text('Edit'), content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-      _field(n, 'Name'), const SizedBox(height: 8), _field(co, 'Company'), const SizedBox(height: 8), _field(ph, 'Phone'), const SizedBox(height: 8), _field(em, 'Email'), const SizedBox(height: 8), _field(al, 'Aliases (,)'),
-    ])), actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')), ElevatedButton(onPressed: () async {
-      final aliases = al.text.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-      await db.updateContact(c.id, ContactsCompanion(name: Value(n.text.trim()), company: Value(co.text.trim().isEmpty ? null : co.text.trim()), phone: Value(ph.text.trim().isEmpty ? null : ph.text.trim()), email: Value(em.text.trim().isEmpty ? null : em.text.trim()), aliases: Value(jsonEncode(aliases))));
-      if (ctx.mounted) Navigator.pop(ctx);
-    }, style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.primary, foregroundColor: Colors.white), child: const Text('Save'))]));
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
   }
 
-  Widget _field(TextEditingController ctrl, String label) => TextField(controller: ctrl, decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), isDense: true));
+  @override
+  Widget build(BuildContext context) {
+    final dark = crmIsDark(context);
+    final primary = Theme.of(context).colorScheme.primary;
+    final narrow = _isNarrow(context);
+    return StreamBuilder<List<Contact>>(
+      stream: db.watchAllContacts(),
+      builder: (_, snapshot) {
+        final contacts = snapshot.data ?? const <Contact>[];
+        final grouped = <String, List<Contact>>{};
+        for (final contact in contacts) {
+          final companyName = (contact.company ?? 'No Company').trim();
+          grouped.putIfAbsent(
+              companyName.isEmpty ? 'No Company' : companyName, () => []);
+          grouped[companyName.isEmpty ? 'No Company' : companyName]!
+              .add(contact);
+        }
+        var companies = grouped.entries
+            .map((entry) =>
+                _CompanySummary(name: entry.key, contacts: entry.value))
+            .toList();
+        if (_query.isNotEmpty) {
+          final q = _query.toLowerCase();
+          companies = companies
+              .where((company) => company.name.toLowerCase().contains(q))
+              .toList();
+        }
+        companies
+            .sort((a, b) => b.contacts.length.compareTo(a.contacts.length));
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          floatingActionButton: _hasCompanySelection
+              ? null
+              : FloatingActionButton(
+                  onPressed: _addCompany,
+                  backgroundColor: primary,
+                  child: const Icon(Icons.add, color: Colors.white),
+                ),
+          body: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Column(
+              children: [
+                if (_hasCompanySelection)
+                  CrmDeleteActionBar(
+                    selectedCount: _selectedCompanyNames.length,
+                    onDelete: () async {
+                      for (final name in _selectedCompanyNames) {
+                        await db.deleteCompany(name);
+                      }
+                      _clearCompanySelection();
+                    },
+                    dark: dark,
+                    primary: primary,
+                    onCancel: _clearCompanySelection,
+                  )
+                else
+                  Row(
+                    children: [
+                      Expanded(
+                        child: CrmSearchField(
+                          controller: _search,
+                          onChanged: (value) =>
+                              setState(() => _query = value.trim()),
+                          dark: dark,
+                          hintText: 'Search companies...',
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      _MetricChip(
+                        label: 'Companies',
+                        value: companies.length.toString(),
+                        dark: dark,
+                      ),
+                    ],
+                  ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: companies.isEmpty
+                      ? _PanelEmptyState(
+                          title: 'No companies',
+                          icon: Icons.business_outlined,
+                          dark: dark,
+                        )
+                      : narrow
+                          ? _companiesMobile(companies, dark, primary)
+                          : _companiesTable(companies, dark, primary),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
-  List<String> _pa(String s) { try { final d = jsonDecode(s); if (d is List) return d.cast<String>(); } catch (_) {} return []; }
+  Widget _companiesTable(
+    List<_CompanySummary> companies,
+    bool dark,
+    Color primary,
+  ) {
+    return CrmSurface(
+      dark: dark,
+      radius: 16,
+      child: CrmTableViewport(
+        minWidth: 760,
+        header: Container(
+          height: crmHeaderHeight,
+          padding: const EdgeInsets.symmetric(horizontal: crmCellPadding),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: crmBorderColor(dark)),
+            ),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 26,
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (_selectedCompanyNames.length == companies.length) {
+                        _selectedCompanyNames.clear();
+                      } else {
+                        _selectedCompanyNames
+                            .addAll(companies.map((c) => c.name));
+                      }
+                    });
+                  },
+                  child: Icon(
+                    _selectedCompanyNames.length == companies.length
+                        ? Icons.check_box_rounded
+                        : _selectedCompanyNames.isNotEmpty
+                            ? Icons.indeterminate_check_box_rounded
+                            : Icons.check_box_outline_blank_rounded,
+                    size: 16,
+                    color: _selectedCompanyNames.isNotEmpty
+                        ? primary
+                        : crmBorderColor(dark),
+                  ),
+                ),
+              ),
+              for (final col in crmCompanyColumns)
+                SizedBox(
+                  width: col.width,
+                  child: Align(
+                    alignment: col.textAlign == TextAlign.right
+                        ? Alignment.centerRight
+                        : Alignment.centerLeft,
+                    child:
+                        crmHeaderText(col.label, dark, sortable: col.sortable),
+                  ),
+                ),
+              const SizedBox(width: 28),
+            ],
+          ),
+        ),
+        body: Scrollbar(
+          thumbVisibility: true,
+          interactive: true,
+          child: ListView.separated(
+            padding: EdgeInsets.zero,
+            itemCount: companies.length,
+            separatorBuilder: (_, __) => Divider(
+              height: 1,
+              thickness: 1,
+              color: crmBorderColor(dark),
+            ),
+            itemBuilder: (_, index) {
+              final company = companies[index];
+              final people = company.contacts.take(3).toList();
+              final extraCount = company.contacts.length - people.length;
+              final selected = _selectedCompanyNames.contains(company.name);
+              return InkWell(
+                hoverColor: crmHoverColor(dark),
+                onTap: () {
+                  if (_hasCompanySelection) {
+                    _toggleCompanySelect(company.name);
+                  } else {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            CompanyDetailPage(companyName: company.name),
+                      ),
+                    );
+                  }
+                },
+                child: Container(
+                  height: crmRowHeight + 2,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: crmCellPadding),
+                  color: selected
+                      ? primary.withValues(alpha: dark ? 0.12 : 0.06)
+                      : Colors.transparent,
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 26,
+                        child: GestureDetector(
+                          onTap: () => _toggleCompanySelect(company.name),
+                          child: Icon(
+                            selected
+                                ? Icons.check_box_rounded
+                                : Icons.check_box_outline_blank_rounded,
+                            size: 16,
+                            color: selected ? primary : crmBorderColor(dark),
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 250,
+                        child: Row(
+                          children: [
+                            CrmAvatarBadge(seed: company.name, accent: primary),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: crmBodyText(
+                                company.name,
+                                dark,
+                                weight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(
+                        width: 90,
+                        child: crmMutedText(
+                          company.contacts.length.toString(),
+                          dark,
+                        ),
+                      ),
+                      Expanded(
+                        child: Wrap(
+                          spacing: 10,
+                          runSpacing: 4,
+                          children: [
+                            for (final person in people)
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CrmAvatarBadge(
+                                    seed: person.name,
+                                    accent: primary,
+                                    size: 16,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  crmMutedText(person.name, dark),
+                                ],
+                              ),
+                            if (extraCount > 0)
+                              CrmChip(
+                                label: '+$extraCount more',
+                                dark: dark,
+                                accent: primary,
+                              ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(
+                        width: 100,
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: crmMutedText(
+                            _formatShortDate(company.latestUpdated),
+                            dark,
+                          ),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 28,
+                        child: GestureDetector(
+                          onTap: () {
+                            crmDeleteConfirmation(
+                              context: context,
+                              title: 'Delete ${company.name}?',
+                              onConfirm: () async =>
+                                  await db.deleteCompany(company.name),
+                              dark: dark,
+                            );
+                          },
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: 14,
+                            color: crmMutedTextColor(dark),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _companiesMobile(
+    List<_CompanySummary> companies,
+    bool dark,
+    Color primary,
+  ) {
+    return Scrollbar(
+      thumbVisibility: true,
+      interactive: true,
+      child: GridView.builder(
+        padding: const EdgeInsets.only(bottom: 16),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: 1.15,
+        ),
+        itemCount: companies.length,
+        itemBuilder: (_, index) {
+          final company = companies[index];
+          final selected = _selectedCompanyNames.contains(company.name);
+          return CrmSwipeDismissible(
+            dark: dark,
+            onDelete: () async => await db.deleteCompany(company.name),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onLongPress: () => _toggleCompanySelect(company.name),
+              onTap: () {
+                if (_hasCompanySelection) {
+                  _toggleCompanySelect(company.name);
+                } else {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          CompanyDetailPage(companyName: company.name),
+                    ),
+                  );
+                }
+              },
+              child: Container(
+                decoration: selected
+                    ? BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: primary, width: 2),
+                      )
+                    : null,
+                child: CrmSurface(
+                  dark: dark,
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CrmAvatarBadge(
+                            seed: company.name, accent: primary, size: 40),
+                        const Spacer(),
+                        Text(
+                          company.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: crmBodyTextColor(dark),
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        crmMutedText(
+                            '${company.contacts.length} contacts', dark),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PipelineView extends StatefulWidget {
+  const _PipelineView();
+
+  @override
+  State<_PipelineView> createState() => _PipelineViewState();
+}
+
+class _PipelineViewState extends State<_PipelineView> {
+  AppDatabase get db => getIt<AppDatabase>();
+
+  static const stages = [
+    'lead',
+    'contacted',
+    'quoting',
+    'negotiation',
+    'won',
+    'lost',
+  ];
+
+  static const labels = {
+    'lead': 'Leads',
+    'contacted': 'Contacted',
+    'quoting': 'Quoting',
+    'negotiation': 'Negotiation',
+    'won': 'Won',
+    'lost': 'Lost',
+  };
+
+  static const colors = {
+    'lead': Color(0xFF9E9E9E),
+    'contacted': Color(0xFF42A5F5),
+    'quoting': Color(0xFFFFA726),
+    'negotiation': Color(0xFFAB47BC),
+    'won': Color(0xFF66BB6A),
+    'lost': Color(0xFFEF5350),
+  };
+
+  void _addDeal() {
+    final title = TextEditingController();
+    String stage = 'lead';
+    int? selectedContactId;
+    final valueCtrl = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) {
+        return FutureBuilder<List<Contact>>(
+          future: db.watchAllContacts().first,
+          builder: (_, contactSnapshot) {
+            final contacts = contactSnapshot.data ?? const <Contact>[];
+            return StatefulBuilder(
+              builder: (_, setSheetState) => Padding(
+                padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(ctx).viewInsets.bottom),
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'New Deal',
+                        style: TextStyle(
+                            fontSize: 17, fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: title,
+                        decoration: const InputDecoration(
+                          labelText: 'Title *',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      if (contacts.isNotEmpty)
+                        DropdownButtonFormField<int>(
+                          initialValue: selectedContactId,
+                          items: contacts
+                              .map((c) => DropdownMenuItem(
+                                  value: c.id, child: Text(c.name)))
+                              .toList(),
+                          onChanged: (v) =>
+                              setSheetState(() => selectedContactId = v),
+                          decoration: const InputDecoration(
+                            labelText: 'Contact',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        )
+                      else
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 10),
+                          child: Text('No contacts available',
+                              style: TextStyle(
+                                  color: Color(0xFF9E9E9E), fontSize: 12)),
+                        ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: valueCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Value',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        initialValue: stage,
+                        items: stages
+                            .map((s) =>
+                                DropdownMenuItem(value: s, child: Text(s)))
+                            .toList(),
+                        onChanged: (v) =>
+                            setSheetState(() => stage = v ?? stage),
+                        decoration: const InputDecoration(
+                          labelText: 'Stage',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            if (title.text.trim().isEmpty) return;
+                            final cid = selectedContactId ??
+                                (contacts.isNotEmpty
+                                    ? contacts.first.id
+                                    : null);
+                            if (cid == null) return;
+                            await db.addDeal(
+                              contactId: cid,
+                              title: title.text.trim(),
+                              stage: stage,
+                              value: valueCtrl.text.trim().isEmpty
+                                  ? null
+                                  : double.tryParse(valueCtrl.text.trim()),
+                            );
+                            if (ctx.mounted) Navigator.pop(ctx);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor:
+                                Theme.of(context).colorScheme.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                          child: const Text('Create Deal'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = crmIsDark(context);
+    final primary = Theme.of(context).colorScheme.primary;
+    return StreamBuilder<List<Deal>>(
+      stream: (db.select(db.deals)
+            ..orderBy([(table) => OrderingTerm.desc(table.updatedAt)]))
+          .watch(),
+      builder: (_, snapshot) {
+        final all = snapshot.data ?? const <Deal>[];
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          floatingActionButton: FloatingActionButton(
+            onPressed: _addDeal,
+            backgroundColor: primary,
+            child: const Icon(Icons.add, color: Colors.white),
+          ),
+          body: Scrollbar(
+            thumbVisibility: true,
+            interactive: true,
+            notificationPredicate: (notification) =>
+                notification.metrics.axis == Axis.horizontal,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              scrollDirection: Axis.horizontal,
+              children: [
+                for (final stage in stages)
+                  _stageColumn(
+                    stage: stage,
+                    deals: all.where((deal) => deal.stage == stage).toList(),
+                    dark: dark,
+                    primary: primary,
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _stageColumn({
+    required String stage,
+    required List<Deal> deals,
+    required bool dark,
+    required Color primary,
+  }) {
+    final stageColor = colors[stage] ?? primary;
+    return Container(
+      width: 270,
+      margin: const EdgeInsets.only(right: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CrmSurface(
+            dark: dark,
+            radius: 14,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: stageColor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  labels[stage] ?? stage,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: crmBodyTextColor(dark),
+                  ),
+                ),
+                const Spacer(),
+                crmMutedText(deals.length.toString(), dark),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: deals.isEmpty
+                ? _PanelEmptyState(
+                    title: 'No deals',
+                    icon: Icons.inbox_outlined,
+                    dark: dark,
+                  )
+                : ListView.builder(
+                    itemCount: deals.length,
+                    itemBuilder: (_, index) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _DealCard(
+                          deal: deals[index],
+                          dark: dark,
+                          primary: primary,
+                          stageColor: stageColor,
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DealDeleteButton extends StatefulWidget {
+  final bool dark;
+  final VoidCallback onTap;
+
+  const _DealDeleteButton({required this.dark, required this.onTap});
+
+  @override
+  State<_DealDeleteButton> createState() => _DealDeleteButtonState();
+}
+
+class _DealDeleteButtonState extends State<_DealDeleteButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Container(
+          width: 24,
+          height: 24,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: _hovered
+                ? const Color(0xFFFF6B6B).withValues(alpha: 0.18)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Icon(
+            Icons.close_rounded,
+            size: 14,
+            color: _hovered
+                ? const Color(0xFFFF6B6B)
+                : crmMutedTextColor(widget.dark),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DealCard extends StatelessWidget {
+  final Deal deal;
+  final bool dark;
+  final Color primary;
+  final Color stageColor;
+
+  const _DealCard({
+    required this.deal,
+    required this.dark,
+    required this.primary,
+    required this.stageColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final db = getIt<AppDatabase>();
+    final narrow = _isNarrow(context);
+    return FutureBuilder<Contact?>(
+      future: db.getContact(deal.contactId),
+      builder: (_, snapshot) {
+        final contact = snapshot.data;
+
+        Widget card = InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => DealDetailPage(dealId: deal.id),
+            ),
+          ),
+          child: Stack(
+            children: [
+              CrmSurface(
+                dark: dark,
+                radius: 14,
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      deal.title,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: crmBodyTextColor(dark),
+                      ),
+                    ),
+                    if (contact != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          CrmAvatarBadge(seed: contact.name, accent: primary),
+                          const SizedBox(width: 8),
+                          Expanded(child: crmMutedText(contact.name, dark)),
+                        ],
+                      ),
+                    ],
+                    if (deal.value != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        '\$${deal.value!.toStringAsFixed(0)}',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: primary,
+                        ),
+                      ),
+                    ],
+                    if (deal.probability != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(999),
+                              child: LinearProgressIndicator(
+                                value: deal.probability! / 100,
+                                minHeight: 6,
+                                backgroundColor: crmBorderColor(dark),
+                                valueColor:
+                                    AlwaysStoppedAnimation<Color>(stageColor),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          crmMutedText('${deal.probability}%', dark),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (!narrow)
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: _DealDeleteButton(
+                    dark: dark,
+                    onTap: () {
+                      crmDeleteConfirmation(
+                        context: context,
+                        title: 'Delete this deal?',
+                        onConfirm: () async {
+                          await db.deleteDeal(deal.id);
+                        },
+                        dark: dark,
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+
+        if (narrow) {
+          card = CrmSwipeDismissible(
+            dismissKey: ValueKey(deal.id),
+            onDelete: () async {
+              await db.deleteDeal(deal.id);
+            },
+            dark: dark,
+            child: card,
+          );
+        }
+
+        return card;
+      },
+    );
+  }
 }

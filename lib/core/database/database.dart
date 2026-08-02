@@ -7,8 +7,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
 import '../utils/doc_parser.dart';
+import 'package:uuid/uuid.dart';
 
 part 'database.g.dart';
+
+const _uuid = Uuid();
 
 class HubPayloads extends Table {
   IntColumn get id => integer().autoIncrement()();
@@ -16,12 +19,17 @@ class HubPayloads extends Table {
   TextColumn get mediaPaths => text().withDefault(const Constant('[]'))();
   TextColumn get intentTag => text().withDefault(const Constant('NOTE'))();
   IntColumn get syncStatus => integer().withDefault(const Constant(0))();
+  TextColumn get syncUuid => text().nullable()();
+  BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
 class ChatSessions extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get title => text().withLength(min: 1, max: 100)();
+  IntColumn get syncStatus => integer().withDefault(const Constant(0))();
+  TextColumn get syncUuid => text().nullable()();
+  BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }
@@ -31,6 +39,10 @@ class ChatMessages extends Table {
   IntColumn get sessionId => integer().references(ChatSessions, #id)();
   TextColumn get role => text()();
   TextColumn get content => text()();
+  IntColumn get syncStatus => integer().withDefault(const Constant(0))();
+  TextColumn get syncUuid => text().nullable()();
+  BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -38,6 +50,9 @@ class LongTermMemories extends Table {
   IntColumn get id => integer().autoIncrement()();
   TextColumn get content => text()();
   TextColumn get tags => text().nullable()();
+  IntColumn get syncStatus => integer().withDefault(const Constant(0))();
+  TextColumn get syncUuid => text().nullable()();
+  BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }
@@ -49,6 +64,10 @@ class KnowledgeFiles extends Table {
   IntColumn get size => integer()();
   TextColumn get extension => text()();
   BoolColumn get isActive => boolean().withDefault(const Constant(true))();
+  IntColumn get syncStatus => integer().withDefault(const Constant(0))();
+  TextColumn get syncUuid => text().nullable()();
+  BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -77,6 +96,9 @@ class Contacts extends Table {
   TextColumn get tags => text().withDefault(const Constant('[]'))();
   TextColumn get notes => text().nullable()();
   TextColumn get avatarPath => text().nullable()();
+  IntColumn get syncStatus => integer().withDefault(const Constant(0))();
+  TextColumn get syncUuid => text().nullable()();
+  BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }
@@ -90,6 +112,9 @@ class Deals extends Table {
   IntColumn get probability => integer().nullable()();
   DateTimeColumn get expectedCloseDate => dateTime().nullable()();
   TextColumn get notes => text().nullable()();
+  IntColumn get syncStatus => integer().withDefault(const Constant(0))();
+  TextColumn get syncUuid => text().nullable()();
+  BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }
@@ -101,6 +126,10 @@ class Activities extends Table {
   TextColumn get type => text()();
   TextColumn get content => text()();
   TextColumn get mediaPaths => text().withDefault(const Constant('[]'))();
+  IntColumn get syncStatus => integer().withDefault(const Constant(0))();
+  TextColumn get syncUuid => text().nullable()();
+  BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
+  DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
 }
 
@@ -111,6 +140,9 @@ class Products extends Table {
   TextColumn get specs => text().withDefault(const Constant('{}'))();
   RealColumn get unitPrice => real().nullable()();
   TextColumn get notes => text().nullable()();
+  IntColumn get syncStatus => integer().withDefault(const Constant(0))();
+  TextColumn get syncUuid => text().nullable()();
+  BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }
@@ -124,141 +156,521 @@ class Tasks extends Table {
   IntColumn get priority => integer().withDefault(const Constant(0))();
   TextColumn get status => text().withDefault(const Constant('pending'))();
   TextColumn get sourceText => text().nullable()();
+  IntColumn get syncStatus => integer().withDefault(const Constant(0))();
+  TextColumn get syncUuid => text().nullable()();
+  BoolColumn get isDeleted => boolean().withDefault(const Constant(false))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
   DateTimeColumn get updatedAt => dateTime().withDefault(currentDateAndTime)();
 }
 
 @DriftDatabase(tables: [
-  HubPayloads, ChatSessions, ChatMessages, LongTermMemories,
-  KnowledgeFiles, VectorStorage, AppConfig, Contacts, Deals,
-  Activities, Products, Tasks,
+  HubPayloads,
+  ChatSessions,
+  ChatMessages,
+  LongTermMemories,
+  KnowledgeFiles,
+  VectorStorage,
+  AppConfig,
+  Contacts,
+  Deals,
+  Activities,
+  Products,
+  Tasks,
 ])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration {
     return MigrationStrategy(
-      onCreate: (Migrator m) async { await m.createAll(); },
+      onCreate: (Migrator m) async {
+        await m.createAll();
+      },
       onUpgrade: (Migrator m, int from, int to) async {
-        if (from <= 1) { await m.createTable(chatSessions); await m.createTable(chatMessages); }
-        if (from <= 2) { await m.createTable(longTermMemories); await m.createTable(knowledgeFiles); }
-        if (from <= 3) { await customStatement('DROP TABLE IF EXISTS knowledge_files'); await m.createTable(knowledgeFiles); }
-        if (from <= 4) { await m.createTable(vectorStorage); }
-        if (from <= 5) { await customStatement('ALTER TABLE knowledge_files ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1'); }
+        if (from <= 1) {
+          await m.createTable(chatSessions);
+          await m.createTable(chatMessages);
+        }
+        if (from <= 2) {
+          await m.createTable(longTermMemories);
+          await m.createTable(knowledgeFiles);
+        }
+        if (from <= 3) {
+          await customStatement('DROP TABLE IF EXISTS knowledge_files');
+          await m.createTable(knowledgeFiles);
+        }
+        if (from <= 4) {
+          await m.createTable(vectorStorage);
+        }
+        if (from <= 5) {
+          await customStatement(
+              'ALTER TABLE knowledge_files ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1');
+        }
         if (from <= 6) {
-          await m.createTable(appConfig); await m.createTable(contacts);
-          await m.createTable(deals); await m.createTable(activities);
-          await m.createTable(products); await m.createTable(tasks);
+          await m.createTable(appConfig);
+          await m.createTable(contacts);
+          await m.createTable(deals);
+          await m.createTable(activities);
+          await m.createTable(products);
+          await m.createTable(tasks);
         }
         // v7 -> v8: VectorStorage embedding column
         if (from <= 7) {
-          await customStatement('ALTER TABLE vector_storage ADD COLUMN embedding TEXT');
+          await customStatement(
+              'ALTER TABLE vector_storage ADD COLUMN embedding TEXT');
+        }
+        if (from <= 8) {
+          await _migrateV9(m);
+        }
+        if (from <= 9) {
+          await _migrateV10(m);
         }
       },
-      beforeOpen: (details) async { await customStatement('PRAGMA foreign_keys = ON'); },
+      beforeOpen: (details) async {
+        await customStatement('PRAGMA foreign_keys = ON');
+      },
     );
   }
 
+  Future<void> _migrateV9(Migrator m) async {
+    final tablesToAddSync = [
+      'hub_payloads',
+      'chat_sessions',
+      'chat_messages',
+      'long_term_memories',
+      'knowledge_files',
+      'contacts',
+      'deals',
+      'activities',
+      'products',
+      'tasks'
+    ];
+    for (final table in tablesToAddSync) {
+      try {
+        await customStatement(
+            "ALTER TABLE $table ADD COLUMN sync_status INTEGER NOT NULL DEFAULT 0");
+      } catch (_) {}
+    }
+    for (final table in tablesToAddSync) {
+      try {
+        await customStatement("ALTER TABLE $table ADD COLUMN sync_uuid TEXT");
+      } catch (_) {}
+    }
+    for (final table in ['chat_messages', 'knowledge_files', 'activities']) {
+      try {
+        await customStatement(
+            "ALTER TABLE $table ADD COLUMN updated_at DATETIME NOT NULL DEFAULT (datetime('now'))");
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _migrateV10(Migrator m) async {
+    final allTables = [
+      'hub_payloads',
+      'chat_sessions',
+      'chat_messages',
+      'long_term_memories',
+      'knowledge_files',
+      'contacts',
+      'deals',
+      'activities',
+      'products',
+      'tasks'
+    ];
+    for (final table in allTables) {
+      try {
+        await customStatement(
+            "ALTER TABLE $table ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0");
+      } catch (_) {}
+    }
+  }
+
   // ==================== HubPayloads ====================
-  Future<int> insertPayload(HubPayloadsCompanion entry) => into(hubPayloads).insert(entry);
-  Future<int> updatePayload(int id, String rawText, String intentTag) => (update(hubPayloads)..where((t) => t.id.equals(id))).write(HubPayloadsCompanion(rawText: Value(rawText), intentTag: Value(intentTag)));
-  Stream<List<HubPayload>> watchAllPayloads() => (select(hubPayloads)..orderBy([(t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc)])).watch();
+  Future<int> insertPayload(HubPayloadsCompanion entry) =>
+      into(hubPayloads).insert(entry.copyWith(syncUuid: Value(_uuid.v4())));
+  Future<int> updatePayload(int id, String rawText, String intentTag) =>
+      (update(hubPayloads)..where((t) => t.id.equals(id))).write(
+          HubPayloadsCompanion(
+              rawText: Value(rawText),
+              intentTag: Value(intentTag),
+              syncStatus: const Value(2)));
+  Stream<List<HubPayload>> watchAllPayloads() => (select(hubPayloads)
+        ..where((t) => t.isDeleted.equals(false))
+        ..orderBy([
+          (t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc)
+        ]))
+      .watch();
+  Future<int> deletePayload(int id) =>
+      (update(hubPayloads)..where((t) => t.id.equals(id))).write(
+          HubPayloadsCompanion(
+              isDeleted: const Value(true), syncStatus: const Value(3)));
 
   // ==================== Chat ====================
-  Future<int> createSession(String title) => into(chatSessions).insert(ChatSessionsCompanion.insert(title: title));
+  Future<int> createSession(String title) =>
+      into(chatSessions).insert(ChatSessionsCompanion.insert(
+          title: title, syncUuid: Value(_uuid.v4())));
   Stream<List<ChatSession>> watchAllSessions(String query) {
-    if (query.trim().isEmpty) return (select(chatSessions)..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).watch();
-    return (select(chatSessions)..where((s) {
-      final titleMatch = s.title.like('%$query%');
-      final matchingSessionIds = selectOnly(chatMessages)..addColumns([chatMessages.sessionId])..where(chatMessages.content.like('%$query%'));
-      return titleMatch | s.id.isInQuery(matchingSessionIds);
-    })..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).watch();
+    if (query.trim().isEmpty) {
+      return (select(chatSessions)
+            ..where((t) => t.isDeleted.equals(false))
+            ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+          .watch();
+    }
+    return (select(chatSessions)
+          ..where((s) {
+            final titleMatch = s.title.like('%$query%');
+            final matchingSessionIds = selectOnly(chatMessages)
+              ..addColumns([chatMessages.sessionId])
+              ..where(chatMessages.content.like('%$query%'));
+            return s.isDeleted.equals(false) &
+                (titleMatch | s.id.isInQuery(matchingSessionIds));
+          })
+          ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+        .watch();
   }
+
   Future<int> insertMessage(int sessionId, String role, String content) {
-    (update(chatSessions)..where((t) => t.id.equals(sessionId))).write(ChatSessionsCompanion(updatedAt: Value(DateTime.now())));
-    return into(chatMessages).insert(ChatMessagesCompanion.insert(sessionId: sessionId, role: role, content: content));
+    (update(chatSessions)..where((t) => t.id.equals(sessionId)))
+        .write(ChatSessionsCompanion(
+            updatedAt: Value(DateTime.now()), syncStatus: const Value(2)));
+    return into(chatMessages).insert(ChatMessagesCompanion.insert(
+        sessionId: sessionId, role: role, content: content,
+        syncUuid: Value(_uuid.v4())));
   }
-  Future<List<ChatMessage>> getMessagesForSession(int sessionId) => (select(chatMessages)..where((t) => t.sessionId.equals(sessionId))..orderBy([(t) => OrderingTerm.asc(t.createdAt)])).get();
+
+  Future<List<ChatMessage>> getMessagesForSession(int sessionId) =>
+      (select(chatMessages)
+            ..where((t) => t.sessionId.equals(sessionId) & t.isDeleted.equals(false))
+            ..orderBy([(t) => OrderingTerm.asc(t.createdAt)]))
+          .get();
 
   // ==================== Memories ====================
-  Stream<List<LongTermMemory>> watchAllMemories() => (select(longTermMemories)..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).watch();
-  Future<List<String>> getAllMemoryTexts() async { final m = await select(longTermMemories).get(); return m.map((e) => e.content).toList(); }
-  Future<int> addMemory(String content, {String? tags}) => into(longTermMemories).insert(LongTermMemoriesCompanion.insert(content: content, tags: Value(tags)));
-  Future<int> updateMemory(int id, String newContent) => (update(longTermMemories)..where((t) => t.id.equals(id))).write(LongTermMemoriesCompanion(content: Value(newContent), updatedAt: Value(DateTime.now())));
-  Future<int> deleteMemory(int id) => (delete(longTermMemories)..where((t) => t.id.equals(id))).go();
+  Stream<List<LongTermMemory>> watchAllMemories() => (select(longTermMemories)
+        ..where((t) => t.isDeleted.equals(false))
+        ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+      .watch();
+  Future<List<String>> getAllMemoryTexts() async {
+    final m = await (select(longTermMemories)
+          ..where((t) => t.isDeleted.equals(false)))
+        .get();
+    return m.map((e) => e.content).toList();
+  }
+
+  Future<int> addMemory(String content, {String? tags}) =>
+      into(longTermMemories).insert(LongTermMemoriesCompanion.insert(
+          content: content, tags: Value(tags),
+          syncUuid: Value(_uuid.v4())));
+  Future<int> updateMemory(int id, String newContent) =>
+      (update(longTermMemories)..where((t) => t.id.equals(id))).write(
+          LongTermMemoriesCompanion(
+              content: Value(newContent),
+              updatedAt: Value(DateTime.now()),
+              syncStatus: const Value(2)));
+  Future<int> deleteMemory(int id) =>
+      (update(longTermMemories)..where((t) => t.id.equals(id))).write(
+          LongTermMemoriesCompanion(
+              isDeleted: const Value(true), syncStatus: const Value(3)));
 
   // ==================== Knowledge Files ====================
-  Stream<List<KnowledgeFile>> watchAllFiles() => (select(knowledgeFiles)..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).watch();
-  Future<int> addFile({required String name, required String localPath, required int size, required String extension}) => into(knowledgeFiles).insert(KnowledgeFilesCompanion.insert(name: name, localPath: localPath, size: size, extension: extension));
-  Future<void> deleteFile(int id) => transaction(() async { await (delete(vectorStorage)..where((t) => t.sourceFileId.equals(id))).go(); await (delete(knowledgeFiles)..where((t) => t.id.equals(id))).go(); });
-  Future<void> toggleFileActive(int id, bool isActive) => (update(knowledgeFiles)..where((t) => t.id.equals(id))).write(KnowledgeFilesCompanion(isActive: Value(isActive)));
+  Stream<List<KnowledgeFile>> watchAllFiles() =>
+      (select(knowledgeFiles)
+            ..where((t) => t.isDeleted.equals(false))
+            ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
+          .watch();
+  Future<int> addFile(
+          {required String name,
+          required String localPath,
+          required int size,
+          required String extension}) =>
+      into(knowledgeFiles).insert(KnowledgeFilesCompanion.insert(
+          name: name, localPath: localPath, size: size, extension: extension,
+          syncUuid: Value(_uuid.v4())));
+  Future<void> deleteFile(int id) => transaction(() async {
+        await (delete(vectorStorage)..where((t) => t.sourceFileId.equals(id)))
+            .go();
+        await (update(knowledgeFiles)..where((t) => t.id.equals(id))).write(
+            KnowledgeFilesCompanion(
+                isDeleted: const Value(true), syncStatus: const Value(3)));
+      });
+  Future<void> toggleFileActive(int id, bool isActive) =>
+      (update(knowledgeFiles)..where((t) => t.id.equals(id)))
+          .write(KnowledgeFilesCompanion(isActive: Value(isActive)));
 
   // ==================== RAG (legacy LIKE-based) ====================
   Future<void> processFileForRAG(int fileId, String localPath) async {
     final fullText = await DocParser.extractTextFromPdf(localPath);
     final chunks = DocParser.chunkText(fullText);
     for (var chunk in chunks) {
-      await into(vectorStorage).insert(VectorStorageCompanion.insert(sourceFileId: fileId, content: chunk));
+      await into(vectorStorage).insert(
+          VectorStorageCompanion.insert(sourceFileId: fileId, content: chunk));
     }
   }
 
   Future<String> getRelevantContext(String query) async {
-    final activeFiles = await (select(knowledgeFiles)..where((t) => t.isActive.equals(true))).get();
+    final activeFiles = await (select(knowledgeFiles)
+          ..where((t) => t.isActive.equals(true)))
+        .get();
     if (activeFiles.isEmpty) return "";
     final activeFileIds = activeFiles.map((f) => f.id).toList();
-    final results = await (select(vectorStorage)..where((t) => t.sourceFileId.isIn(activeFileIds) & t.content.like('%$query%'))..limit(3)).get();
+    final results = await (select(vectorStorage)
+          ..where((t) =>
+              t.sourceFileId.isIn(activeFileIds) & t.content.like('%$query%'))
+          ..limit(3))
+        .get();
     return results.map((e) => e.content).join('\n---\n');
   }
 
   // ==================== Vector Storage (V2 enhanced) ====================
-  Future<void> storeVector(int sourceFileId, String content, String embeddingJson) => into(vectorStorage).insert(VectorStorageCompanion.insert(sourceFileId: sourceFileId, content: content, embedding: Value(embeddingJson)));
+  Future<void> storeVector(
+          int sourceFileId, String content, String embeddingJson) =>
+      into(vectorStorage).insert(VectorStorageCompanion.insert(
+          sourceFileId: sourceFileId,
+          content: content,
+          embedding: Value(embeddingJson)));
 
-  Future<List<Map<String, dynamic>>> getAllVectorsForFiles(List<int> fileIds) async {
+  Future<List<Map<String, dynamic>>> getAllVectorsForFiles(
+      List<int> fileIds) async {
     if (fileIds.isEmpty) return [];
-    final rows = await (select(vectorStorage)..where((t) => t.sourceFileId.isIn(fileIds) & t.embedding.isNotNull())).get();
-    return rows.where((r) => r.embedding != null && r.embedding!.isNotEmpty).map((r) => {'id': r.id, 'content': r.content, 'source_file_id': r.sourceFileId, 'embedding': r.embedding!}).toList();
+    final rows = await (select(vectorStorage)
+          ..where(
+              (t) => t.sourceFileId.isIn(fileIds) & t.embedding.isNotNull()))
+        .get();
+    return rows
+        .where((r) => r.embedding != null && r.embedding!.isNotEmpty)
+        .map((r) => {
+              'id': r.id,
+              'content': r.content,
+              'source_file_id': r.sourceFileId,
+              'embedding': r.embedding!
+            })
+        .toList();
   }
 
   // ==================== AppConfig ====================
-  Future<String?> getConfig(String key) async { final r = await (select(appConfig)..where((t) => t.key.equals(key))).getSingleOrNull(); return r?.value; }
-  Future<void> setConfig(String key, String value) => into(appConfig).insertOnConflictUpdate(AppConfigCompanion(key: Value(key), value: Value(value)));
+  Future<String?> getConfig(String key) async {
+    final r = await (select(appConfig)..where((t) => t.key.equals(key)))
+        .getSingleOrNull();
+    return r?.value;
+  }
+
+  Future<void> setConfig(String key, String value) =>
+      into(appConfig).insertOnConflictUpdate(
+          AppConfigCompanion(key: Value(key), value: Value(value)));
 
   // ==================== Contacts ====================
-  Future<int> addContact({required String name, String aliases = '[]', String? company, String? role, String? phone, String? email, String tags = '[]'}) => into(contacts).insert(ContactsCompanion.insert(name: name, aliases: Value(aliases), company: Value(company), role: Value(role), phone: Value(phone), email: Value(email), tags: Value(tags)));
-  Stream<List<Contact>> watchAllContacts() => (select(contacts)..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).watch();
-  Future<List<Contact>> searchContacts(String query) => (select(contacts)..where((t) => t.name.like('%$query%') | t.company.like('%$query%') | t.aliases.like('%$query%'))..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).get();
-  Future<Contact?> getContact(int id) => (select(contacts)..where((t) => t.id.equals(id))).getSingleOrNull();
-  Future<void> updateContact(int id, ContactsCompanion companion) => (update(contacts)..where((t) => t.id.equals(id))).write(companion.copyWith(updatedAt: Value(DateTime.now())));
+  Future<int> addContact(
+          {required String name,
+          String aliases = '[]',
+          String? company,
+          String? role,
+          String? phone,
+          String? email,
+          String tags = '[]'}) =>
+      into(contacts).insert(ContactsCompanion.insert(
+          name: name,
+          aliases: Value(aliases),
+          company: Value(company),
+          role: Value(role),
+          phone: Value(phone),
+          email: Value(email),
+          tags: Value(tags),
+          syncUuid: Value(_uuid.v4())));
+  Stream<List<Contact>> watchAllContacts() =>
+      (select(contacts)
+            ..where((t) => t.isDeleted.equals(false))
+            ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+          .watch();
+  Stream<Contact?> watchContact(int id) =>
+      (select(contacts)..where((t) => t.id.equals(id) & t.isDeleted.equals(false)))
+          .watchSingleOrNull();
+  Stream<List<Contact>> watchContactsForCompany(String companyName) =>
+      (select(contacts)
+            ..where((t) => t.company.equals(companyName) & t.isDeleted.equals(false))
+            ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+          .watch();
+  Future<List<Contact>> searchContacts(String query) => (select(contacts)
+        ..where((t) =>
+            (t.name.like('%$query%') |
+                t.company.like('%$query%') |
+                t.aliases.like('%$query%')) &
+            t.isDeleted.equals(false))
+        ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+      .get();
+  Future<Contact?> getContact(int id) =>
+      (select(contacts)..where((t) => t.id.equals(id) & t.isDeleted.equals(false)))
+          .getSingleOrNull();
+  Future<void> updateContact(int id, ContactsCompanion companion) =>
+      (update(contacts)..where((t) => t.id.equals(id)))
+          .write(companion.copyWith(
+              updatedAt: Value(DateTime.now()), syncStatus: const Value(2)));
+  Future<void> deleteContact(int id) =>
+      (update(contacts)..where((t) => t.id.equals(id))).write(
+          ContactsCompanion(
+              isDeleted: const Value(true), syncStatus: const Value(3)));
+  Future<void> renameCompany(String oldName, String newName) async {
+    final normalized = newName.trim();
+    if (normalized.isEmpty || normalized == oldName) return;
+    await (update(contacts)..where((t) => t.company.equals(oldName))).write(
+      ContactsCompanion(
+        company: Value(normalized),
+        updatedAt: Value(DateTime.now()),
+        syncStatus: const Value(2),
+      ),
+    );
+  }
+
+  Future<void> deleteCompany(String name) => transaction(() async {
+        await (update(contacts)..where((t) => t.company.equals(name))).write(
+            ContactsCompanion(
+                company: const Value(null),
+                updatedAt: Value(DateTime.now()),
+                syncStatus: const Value(2)));
+      });
 
   // ==================== Activities ====================
-  Future<int> addActivity({required int contactId, int? dealId, required String type, required String content, String mediaPaths = '[]'}) {
-    (update(contacts)..where((t) => t.id.equals(contactId))).write(ContactsCompanion(updatedAt: Value(DateTime.now())));
-    return into(activities).insert(ActivitiesCompanion.insert(contactId: contactId, dealId: Value(dealId), type: type, content: content, mediaPaths: Value(mediaPaths)));
+  Future<int> addActivity(
+      {required int contactId,
+      int? dealId,
+      required String type,
+      required String content,
+      String mediaPaths = '[]'}) {
+    (update(contacts)..where((t) => t.id.equals(contactId)))
+        .write(ContactsCompanion(
+            updatedAt: Value(DateTime.now()), syncStatus: const Value(2)));
+    return into(activities).insert(ActivitiesCompanion.insert(
+        contactId: contactId,
+        dealId: Value(dealId),
+        type: type,
+        content: content,
+        mediaPaths: Value(mediaPaths),
+        syncUuid: Value(_uuid.v4())));
   }
-  Stream<List<Activity>> watchActivitiesForContact(int contactId) => (select(activities)..where((t) => t.contactId.equals(contactId))..orderBy([(t) => OrderingTerm.desc(t.createdAt)])).watch();
+
+  Stream<List<Activity>> watchActivitiesForContact(int contactId) =>
+      (select(activities)
+            ..where((t) => t.contactId.equals(contactId) & t.isDeleted.equals(false))
+            ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
+          .watch();
+  Stream<List<Activity>> watchActivitiesForDeal(int dealId) =>
+      (select(activities)
+            ..where((t) => t.dealId.equals(dealId) & t.isDeleted.equals(false))
+            ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
+          .watch();
+  Stream<List<Activity>> watchActivitiesForContacts(List<int> contactIds) {
+    if (contactIds.isEmpty) return Stream.value(const <Activity>[]);
+    return (select(activities)
+          ..where((t) => t.contactId.isIn(contactIds) & t.isDeleted.equals(false))
+          ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
+        .watch();
+  }
 
   // ==================== Tasks ====================
-  Future<int> addTask({required String title, int? contactId, int? dealId, DateTime? dueDate, int priority = 0, String? sourceText}) => into(tasks).insert(TasksCompanion.insert(title: title, contactId: Value(contactId), dealId: Value(dealId), dueDate: Value(dueDate), priority: Value(priority), sourceText: Value(sourceText)));
-  Stream<List<Task>> watchActiveTasks() => (select(tasks)..where((t) => t.status.equals('pending'))..orderBy([(t) => OrderingTerm(expression: t.priority, mode: OrderingMode.desc), (t) => OrderingTerm(expression: t.dueDate, mode: OrderingMode.asc)])).watch();
+  Future<int> addTask(
+          {required String title,
+          int? contactId,
+          int? dealId,
+          DateTime? dueDate,
+          int priority = 0,
+          String? sourceText}) =>
+      into(tasks).insert(TasksCompanion.insert(
+          title: title,
+          contactId: Value(contactId),
+          dealId: Value(dealId),
+          dueDate: Value(dueDate),
+          priority: Value(priority),
+          sourceText: Value(sourceText),
+          syncUuid: Value(_uuid.v4())));
+  Future<int> deleteTask(int id) =>
+      (update(tasks)..where((t) => t.id.equals(id))).write(
+          TasksCompanion(
+              isDeleted: const Value(true), syncStatus: const Value(3)));
+  Stream<List<Task>> watchActiveTasks() => (select(tasks)
+        ..where((t) => t.status.equals('pending') & t.isDeleted.equals(false))
+        ..orderBy([
+          (t) => OrderingTerm(expression: t.priority, mode: OrderingMode.desc),
+          (t) => OrderingTerm(expression: t.dueDate, mode: OrderingMode.asc)
+        ]))
+      .watch();
 
   // ==================== Deals ====================
-  Future<int> addDeal({required int contactId, required String title, String stage = 'lead', double? value, int? probability, DateTime? expectedCloseDate}) => into(deals).insert(DealsCompanion.insert(contactId: contactId, title: title, stage: Value(stage), value: Value(value), probability: Value(probability), expectedCloseDate: Value(expectedCloseDate)));
-  Stream<List<Deal>> watchDealsForContact(int contactId) => (select(deals)..where((t) => t.contactId.equals(contactId))..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).watch();
+  Future<int> addDeal(
+          {required int contactId,
+          required String title,
+          String stage = 'lead',
+          double? value,
+          int? probability,
+          DateTime? expectedCloseDate}) =>
+      into(deals).insert(DealsCompanion.insert(
+          contactId: contactId,
+          title: title,
+          stage: Value(stage),
+          value: Value(value),
+          probability: Value(probability),
+          expectedCloseDate: Value(expectedCloseDate),
+          syncUuid: Value(_uuid.v4())));
+  Stream<Deal?> watchDeal(int id) =>
+      (select(deals)..where((t) => t.id.equals(id) & t.isDeleted.equals(false)))
+          .watchSingleOrNull();
+  Stream<List<Deal>> watchAllDeals() =>
+      (select(deals)
+            ..where((t) => t.isDeleted.equals(false))
+            ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+          .watch();
+  Stream<List<Deal>> watchDealsForContact(int contactId) => (select(deals)
+        ..where((t) => t.contactId.equals(contactId) & t.isDeleted.equals(false))
+        ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+      .watch();
+  Stream<List<Deal>> watchDealsForContacts(List<int> contactIds) {
+    if (contactIds.isEmpty) return Stream.value(const <Deal>[]);
+    return (select(deals)
+          ..where((t) => t.contactId.isIn(contactIds) & t.isDeleted.equals(false))
+          ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+        .watch();
+  }
+
+  Future<Deal?> getDeal(int id) =>
+      (select(deals)..where((t) => t.id.equals(id) & t.isDeleted.equals(false)))
+          .getSingleOrNull();
+  Future<void> updateDeal(int id, DealsCompanion companion) =>
+      (update(deals)..where((t) => t.id.equals(id)))
+          .write(companion.copyWith(
+              updatedAt: Value(DateTime.now()), syncStatus: const Value(2)));
+  Future<void> deleteDeal(int id) =>
+      (update(deals)..where((t) => t.id.equals(id))).write(
+          DealsCompanion(
+              isDeleted: const Value(true), syncStatus: const Value(3)));
 
   // ==================== Products ====================
-  Future<int> addProduct({required String name, String? category, String specs = '{}', double? unitPrice}) => into(products).insert(ProductsCompanion.insert(name: name, category: Value(category), specs: Value(specs), unitPrice: Value(unitPrice)));
-  Stream<List<Product>> watchAllProducts() => (select(products)..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])).watch();
+  Future<int> addProduct(
+          {required String name,
+          String? category,
+          String specs = '{}',
+          double? unitPrice}) =>
+      into(products).insert(ProductsCompanion.insert(
+          name: name,
+          category: Value(category),
+          specs: Value(specs),
+          unitPrice: Value(unitPrice),
+          syncUuid: Value(_uuid.v4())));
+  Stream<List<Product>> watchAllProducts() =>
+      (select(products)
+            ..where((t) => t.isDeleted.equals(false))
+            ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+          .watch();
 }
 
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
     final dbFolder = await getApplicationDocumentsDirectory();
     final file = File(p.join(dbFolder.path, 'locus_vault.sqlite'));
-    if (Platform.isAndroid) { open.overrideFor(OperatingSystem.android, openCipherOnAndroid); }
-    return NativeDatabase(file, setup: (rawDb) { rawDb.execute("PRAGMA key = 'locus_super_secret_master_key_2026';"); });
+    if (Platform.isAndroid) {
+      open.overrideFor(OperatingSystem.android, openCipherOnAndroid);
+    }
+    return NativeDatabase(file, setup: (rawDb) {
+      rawDb.execute("PRAGMA key = 'locus_super_secret_master_key_2026';");
+    });
   });
 }

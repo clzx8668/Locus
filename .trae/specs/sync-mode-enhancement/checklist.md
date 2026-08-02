@@ -1,0 +1,18 @@
+- [ ] `PbSyncMode` 枚举已定义（manual / auto / smart）
+- [ ] `_canSyncNow` 防抖逻辑正确（10 秒最小间隔）
+- [ ] `isNetworkReachable()` 调用 `healthCheck()` 并正确返回
+- [ ] `triggerPbSync()` 统一入口包含网络检测 + 防抖 + 模式判断
+- [ ] `pb_sync_mode`、`pb_auto_interval`、`pb_scheduled_time` 持久化到 app_config
+- [ ] 自动模式：`Timer.periodic` 按配置间隔触发同步
+- [ ] 自动模式：每日定时同步正确计算并触发
+- [ ] 切换同步模式时定时器正确启停
+- [ ] 智能模式：应用 `resumed` 时触发同步
+- [ ] 智能模式：应用 `paused` 时触发轻量推送
+- [ ] 智能模式：启动时检查并补偿错过的定时同步
+- [ ] `LocusHomePage` 有 `RefreshIndicator` 包装
+- [ ] 下拉刷新调用 `triggerPbSync()` 且动画正常
+- [ ] 设置页有同步模式选择器
+- [ ] 自动模式展开显示间隔配置和定时配置
+- [ ] 手动点击同步：网络不通时提示"网络不可达"
+- [ ] 10 秒内重复触发被拒绝
+- [ ] Dio 请求超时设置为 5 秒

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/di/service_locator.dart';
 import '../../../core/database/database.dart';
+import '../../../core/sync/sync_service.dart';
 
 class ChatHistorySearchPage extends StatefulWidget {
   const ChatHistorySearchPage({super.key});
@@ -17,7 +18,10 @@ class _ChatHistorySearchPageState extends State<ChatHistorySearchPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return ValueListenableBuilder<int>(
+      valueListenable: getIt<SyncService>().syncTick,
+      builder: (_, tick, __) => Scaffold(
+      key: ValueKey('sync_$tick'),
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
@@ -90,6 +94,7 @@ class _ChatHistorySearchPageState extends State<ChatHistorySearchPage> {
             ),
           ),
         ],
+      ),
       ),
     );
   }

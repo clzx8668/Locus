@@ -41,7 +41,11 @@ class _IdeaDetailPageState extends State<IdeaDetailPage> {
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF6F6F6),
-      appBar: AppBar(title: Text(_ds, style: const TextStyle(fontSize: 13, color: Colors.grey)), centerTitle: true, elevation: 0, backgroundColor: Colors.transparent, scrolledUnderElevation: 0, leading: IconButton(icon: const Icon(Icons.arrow_back, size: 22), onPressed: () => Navigator.pop(context)), actions: [IconButton(icon: Icon(_edit ? Icons.check : Icons.edit_outlined, size: 20), onPressed: () { if (_edit) _save(); else setState(() => _edit = true); })]),
+      appBar: AppBar(title: Text(_ds, style: const TextStyle(fontSize: 13, color: Colors.grey)), centerTitle: true, elevation: 0, backgroundColor: Colors.transparent, scrolledUnderElevation: 0, leading: IconButton(icon: const Icon(Icons.arrow_back, size: 22), onPressed: () => Navigator.pop(context)), actions: [IconButton(icon: Icon(_edit ? Icons.check : Icons.edit_outlined, size: 20), onPressed: () { if (_edit) {
+        _save();
+      } else {
+        setState(() => _edit = true);
+      } })]),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

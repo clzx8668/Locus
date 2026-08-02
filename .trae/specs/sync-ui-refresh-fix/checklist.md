@@ -1,0 +1,10 @@
+- [x] `sync_database_ext.dart` 中 `notifyTableUpdates` 方法正确调用 `streamQueries.handleTableUpdates()`
+- [x] `sync_service.dart` 中 Pull/Push 循环正确累计 `tableMods`
+- [x] 同步完成后 `PRAGMA wal_checkpoint(PASSIVE)` 被调用
+- [x] 同步完成后 `notifyTableUpdates` 被调用（在 `syncTick.value++` 之前）
+- [x] 诊断日志输出包含通知了多少张表
+- [ ] PC 端添加记录后，手机端同步后 CRM 联系人列表立即显示新记录（需设备测试）
+- [ ] 手机端添加记录后，PC 端同步后 Idea Stream 页面立即显示新记录（需设备测试）
+- [ ] Chat History 页面同步后即时刷新（需设备测试）
+- [ ] Calendar 页面同步后即时刷新（需设备测试）
+- [ ] Long Term Memory 页面同步后即时刷新（需设备测试）

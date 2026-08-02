@@ -1,0 +1,22 @@
+- [x] `AutoSyncConfig` 包含 `syncOnResume` 和 `syncOnPause` 字段，默认值均为 `true`
+- [x] `setAutoConfig()` 持久化 `sync_on_resume` / `sync_on_pause` 到 `app_config`
+- [x] `init()` 恢复时正确读取 `sync_on_resume` / `sync_on_pause`
+- [x] `setAutoConfig()` 未传入的字段保留当前值，不覆盖
+- [x] `main.dart` 中 `resumed` 回调检查 `syncOnResume` 开关
+- [x] `main.dart` 中 `paused` 回调检查 `syncOnPause` 开关
+- [x] `sync_settings_page.dart` 文件存在且代码结构清晰
+- [x] 子页面顶部有 `SegmentedButton<PbSyncMode>` 三个按钮
+- [x] 切换 SegmentedButton 时调用 `ss.setPbSyncMode()` 并切换下方配置区域
+- [x] 自动/智能模式：频率选择器（10 档）正常显示和切换
+- [x] 自动/智能模式：定时时间选择器（TimePicker）正常显示和设置
+- [x] 智能模式：两个 `SwitchListTile`（syncOnResume / syncOnPause）正常显示和切换
+- [x] 手动模式：显示说明文字，无配置项
+- [x] 所有配置项附带描述文字
+- [x] 设置页"Sync Mode" tile 的 `onTap` 改为 `Navigator.push` 到子页面
+- [x] 设置页已移除 `_pickSyncMode()`、`_pickInterval()`、`_pickTime()` 旧方法
+- [x] 设置页已移除内联 interval / scheduled time 行
+- [x] 设置页保留 `_syncModeLabel()` 并正确显示当前模式
+- [x] "Sync Now" 按钮正常工作
+- [x] `syncOnPause=false` 时应用进入后台不触发同步
+- [x] `syncOnResume=false` 时应用回到前台不触发同步
+- [x] 全项目 `flutter analyze` 零新增 issue

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../di/service_locator.dart';
 import '../database/database.dart';
+import '../zvec/zvec_service.dart';
 
 class VectorSearchResult {
   final int vectorStorageId;
@@ -17,6 +18,7 @@ class VectorSearchResult {
 class EmbeddingService {
   final Dio _dio = Dio();
   AppDatabase get db => getIt<AppDatabase>();
+  ZvecService get _zs => getIt<ZvecService>();
 
   Future<List<double>?> getEmbedding(String text) async {
     final apiKey = (dotenv.env['LLM_API_KEY'] ?? '').trim();
@@ -39,10 +41,42 @@ class EmbeddingService {
     await db.storeVector(sourceFileId, content, jsonEncode(v));
   }
 
-  Future<void> embedChunks(int sourceFileId, List<String> chunks) async { for (final c in chunks) await embedAndStore(sourceFileId: sourceFileId, content: c); }
+  Future<void> embedChunks(int sourceFileId, List<String> chunks) async { for (final c in chunks) {
+    await embedAndStore(sourceFileId: sourceFileId, content: c);
+  } }
 
   Future<List<VectorSearchResult>> search({required String query, int limit = 5, double minSimilarity = 0.3}) async {
-    final qv = await getEmbedding(query); if (qv == null) return [];
+    // Prefer Zvec hybrid search (local, sub-millisecond)
+    final qv = await getEmbedding(query);
+    if (qv == null) return [];
+
+    if (_zs.isAvailable) {
+      try {
+        final zResults = _zs.multiSearch(
+          queryText: query,
+          queryVector: Float32List.fromList(qv),
+          topk: limit,
+        );
+        return zResults.map((z) => VectorSearchResult(
+          vectorStorageId: 0, // Zvec results don't have VS id
+          content: z.content,
+          similarity: z.score,
+          sourceFileId: 0,
+        )).toList();
+      } catch (e) {
+        debugPrint('Zvec search failed, falling back to brute-force: $e');
+      }
+    }
+
+    // Fallback: brute-force cosine similarity over VectorStorage table
+    return _bruteForceSearch(queryEmbedding: qv, limit: limit, minSimilarity: minSimilarity);
+  }
+
+  Future<List<VectorSearchResult>> _bruteForceSearch({
+    required List<double> queryEmbedding,
+    int limit = 5,
+    double minSimilarity = 0.3,
+  }) async {
     final af = await (db.select(db.knowledgeFiles)..where((t) => t.isActive.equals(true))).get();
     if (af.isEmpty) return [];
     final ids = af.map((f) => f.id).toList();
@@ -52,7 +86,7 @@ class EmbeddingService {
       final ej = row['embedding'] as String?; if (ej == null || ej.isEmpty) continue;
       try {
         final sv = (jsonDecode(ej) as List).cast<double>();
-        final sim = _cos(qv, sv);
+        final sim = _cos(queryEmbedding, sv);
         if (sim >= minSimilarity) results.add(VectorSearchResult(vectorStorageId: row['id'] as int, content: row['content'] as String, similarity: sim, sourceFileId: row['source_file_id'] as int));
       } catch (_) {}
     }

@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
 import '../../../core/di/service_locator.dart';
+import '../../../core/sync/sync_service.dart';
 import '../../../core/database/database.dart';
 import '../../../core/utils/doc_parser.dart';
 
@@ -16,30 +17,34 @@ class LongTermMemoryPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        backgroundColor: Colors.grey[50],
-        appBar: AppBar(
-          title: const Text('长久记忆与知识库',
-              style: TextStyle(fontSize: 18, color: Colors.black87)),
-          backgroundColor: Colors.white,
-          elevation: 0.5,
-          iconTheme: const IconThemeData(color: Colors.black87),
-          bottom: const TabBar(
-            labelColor: Colors.black87,
-            indicatorColor: Colors.black87,
-            tabs: [
-              Tab(icon: Icon(Icons.psychology), text: '核心设定与记忆'),
-              Tab(icon: Icon(Icons.folder_shared), text: '本地参考资料'),
+    return ValueListenableBuilder<int>(
+      valueListenable: getIt<SyncService>().syncTick,
+      builder: (_, tick, __) => DefaultTabController(
+        key: ValueKey('sync_$tick'),
+        length: 2,
+        child: Scaffold(
+          backgroundColor: Colors.grey[50],
+          appBar: AppBar(
+            title: const Text('长久记忆与知识库',
+                style: TextStyle(fontSize: 18, color: Colors.black87)),
+            backgroundColor: Colors.white,
+            elevation: 0.5,
+            iconTheme: const IconThemeData(color: Colors.black87),
+            bottom: const TabBar(
+              labelColor: Colors.black87,
+              indicatorColor: Colors.black87,
+              tabs: [
+                Tab(icon: Icon(Icons.psychology), text: '核心设定与记忆'),
+                Tab(icon: Icon(Icons.folder_shared), text: '本地参考资料'),
+              ],
+            ),
+          ),
+          body: const TabBarView(
+            children: [
+              _MemoryRulesView(),
+              _KnowledgeBaseView(),
             ],
           ),
-        ),
-        body: const TabBarView(
-          children: [
-            _MemoryRulesView(),
-            _KnowledgeBaseView(),
-          ],
         ),
       ),
     );
@@ -423,7 +428,7 @@ class _KnowledgeBaseViewState extends State<_KnowledgeBaseView> {
                         onChanged: (newValue) {
                           db.toggleFileActive(file.id, newValue);
                         },
-                        activeColor: Colors.green,
+                        activeThumbColor: Colors.green,
                         activeTrackColor: Colors.green.withValues(alpha: 0.3),
                       ),
                       IconButton(

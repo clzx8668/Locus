@@ -1,12 +1,17 @@
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
 import '../database/database.dart';
+import '../sync/sync_service.dart';
 import '../vault/vault_service.dart';
 import '../vault/fts_index_service.dart';
 import '../services/ai_route_service.dart';
+import '../services/ai_router.dart';
+import '../services/text_to_sql_service.dart';
 import '../services/unified_search_service.dart';
 import '../services/embedding_service.dart';
+import '../services/embedding_etl.dart';
 import '../theme/theme_config.dart';
+import '../zvec/zvec_service.dart';
 
 final getIt = GetIt.instance;
 
@@ -20,9 +25,15 @@ Future<void> setupLocator() async {
   getIt.registerSingleton<FtsIndexService>(ftsService);
 
   getIt.registerSingleton<AiRouteService>(AiRouteService());
+  getIt.registerSingleton<TextToSqlService>(TextToSqlService());
+  getIt.registerSingleton<AiRouter>(AiRouter());
   getIt.registerSingleton<UnifiedSearchService>(UnifiedSearchService());
   getIt.registerSingleton<EmbeddingService>(EmbeddingService());
+  getIt.registerSingleton<EmbeddingETL>(EmbeddingETL());
   getIt.registerSingleton<ThemeConfig>(ThemeConfig());
+
+  final syncService = SyncService(getIt<AppDatabase>());
+  getIt.registerSingleton<SyncService>(syncService);
 
   final db = getIt<AppDatabase>();
   final savedVaultPath = await db.getConfig('vault_path');
@@ -33,6 +44,13 @@ Future<void> setupLocator() async {
   } else {
     debugPrint('Locus Vault not configured. Set path in Settings.');
   }
+
+  await syncService.init();
+
+  final zvecService = ZvecService();
+  getIt.registerSingleton<ZvecService>(zvecService);
+  // Non-blocking init — gracefully degrades if native lib unavailable
+  zvecService.init();
 
   debugPrint("Locus Core Hub Initialized.");
 }
